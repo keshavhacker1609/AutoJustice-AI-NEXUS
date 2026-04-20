@@ -1,0 +1,54 @@
+{
+  "timestamp": "2026-04-19T04:47:21.890356Z",
+  "model_versions": {
+    "fake_detector": "1.0.0",
+    "crime_classifier": "1.0.0",
+    "risk_classifier": "1.0.0"
+  },
+  "feature_names": [
+    "word_count",
+    "unique_word_ratio",
+    "trigger_word_count",
+    "has_financial_amount",
+    "has_phone_number",
+    "has_date",
+    "has_proper_name",
+    "template_match_count",
+    "avg_word_length",
+    "sentence_count",
+    "specificity_score",
+    "capital_letter_ratio",
+    "numeric_ratio",
+    "has_url",
+    "has_email",
+    "exclamation_count",
+    "question_mark_count",
+    "financial_claim_without_amount"
+  ],
+  "crime_categories": [
+    "Financial Crime",
+    "Online Harassment",
+    "Identity Theft",
+    "Extortion",
+    "Child Safety",
+    "Data Breach",
+    "Cyber Fraud",
+    "Impersonation",
+    "Other Cybercrime"
+  ],
+  "fake_detector": {
+    "accuracy": 1.0,
+    "training_samples": 1600,
+    "test_samples": 400
+  },
+  "crime_classifier": {
+    "accuracy": 1.0,
+    "training_samples": 864,
+    "test_samples": 216
+  },
+  "risk_classifier": {
+    "accuracy": 0.9975,
+    "training_samples": 1600,
+    "test_samples": 400
+  }
+}

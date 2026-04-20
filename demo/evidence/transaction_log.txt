@@ -1,0 +1,7 @@
+UPI Transaction Log
+====================
+Date: 2026-04-15 14:32:11
+Amount: Rs 25,000 DEBITED
+To: fraudster@paytm  (unauthorized)
+Reference: UPI19823847234
+Note: Victim received fake customer-care call before this.

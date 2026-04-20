@@ -1,0 +1,56 @@
+/* AutoJustice AI NEXUS — Base Styles */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --primary: #1a237e;
+  --accent: #ff6f00;
+  --success: #2e7d32;
+  --warning: #f57f17;
+  --danger: #c62828;
+  --bg: #f5f6fa;
+  --surface: #ffffff;
+  --text: #212121;
+  --text-muted: #757575;
+  --border: #e0e0e0;
+  --radius: 8px;
+  --shadow: 0 2px 8px rgba(0,0,0,.1);
+}
+
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
+
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.container { max-width: 1200px; margin: 0 auto; padding: 0 1rem; }
+
+.card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.5rem; }
+
+.btn { display: inline-flex; align-items: center; gap: .5rem; padding: .5rem 1.25rem; border-radius: var(--radius); border: none; cursor: pointer; font-size: .9rem; font-weight: 500; transition: opacity .15s; }
+.btn:hover { opacity: .85; }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-accent  { background: var(--accent); color: #fff; }
+.btn-success { background: var(--success); color: #fff; }
+.btn-danger  { background: var(--danger); color: #fff; }
+
+.badge { display: inline-block; padding: .2rem .6rem; border-radius: 999px; font-size: .75rem; font-weight: 600; }
+.badge-high    { background: #ffebee; color: var(--danger); }
+.badge-medium  { background: #fff3e0; color: var(--warning); }
+.badge-low     { background: #e8f5e9; color: var(--success); }
+.badge-genuine { background: #e8f5e9; color: var(--success); }
+.badge-review  { background: #fff3e0; color: var(--warning); }
+.badge-reject  { background: #ffebee; color: var(--danger); }
+
+.text-muted { color: var(--text-muted); }
+.text-success { color: var(--success); }
+.text-danger { color: var(--danger); }
+.text-warning { color: var(--warning); }
+
+.mt-1 { margin-top: .5rem; }
+.mt-2 { margin-top: 1rem; }
+.mt-3 { margin-top: 1.5rem; }
+.mb-1 { margin-bottom: .5rem; }
+.mb-2 { margin-bottom: 1rem; }
+
+@media (max-width: 768px) {
+  .container { padding: 0 .75rem; }
+}

@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Track Your Case | AutoJustice AI NEXUS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --saffron: #FF9933; --green: #138808; --navy: #1a2a4a;
+      --white: #ffffff; --light-blue: #e8f0fe; --gray: #6c757d;
+      --success: #28a745; --danger: #dc3545; --warning: #ffc107;
+      --shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; background: #f0f4f8; color: #333; min-height: 100vh; }
+
+    /* Header */
+    .header { background: linear-gradient(135deg, var(--navy) 0%, #2c3e7a 100%); padding: 0; }
+    .tricolor { height: 6px; background: linear-gradient(to right, var(--saffron) 33%, var(--white) 33% 66%, var(--green) 66%); }
+    .header-content { display: flex; align-items: center; justify-content: space-between; padding: 16px 32px; }
+    .header-brand { display: flex; align-items: center; gap: 16px; text-decoration: none; }
+    .header-logo { width: 48px; height: 48px; background: var(--saffron); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; color: var(--navy); }
+    .header-title h1 { color: white; font-size: 1.3rem; font-weight: 700; }
+    .header-title p { color: rgba(255,255,255,0.7); font-size: 0.8rem; }
+    .header-links { display: flex; gap: 12px; }
+    .btn-header { padding: 8px 20px; border-radius: 6px; text-decoration: none; font-size: 0.85rem; font-weight: 600; transition: all 0.2s; }
+    .btn-header.outline { border: 1.5px solid rgba(255,255,255,0.5); color: white; }
+    .btn-header.outline:hover { background: rgba(255,255,255,0.1); }
+    .btn-header.primary { background: var(--saffron); color: var(--navy); }
+    .btn-header.primary:hover { background: #e8861e; }
+
+    /* Main */
+    .main { max-width: 800px; margin: 40px auto; padding: 0 20px 60px; }
+    .page-title { text-align: center; margin-bottom: 32px; }
+    .page-title h2 { font-size: 2rem; color: var(--navy); font-weight: 700; }
+    .page-title p { color: var(--gray); margin-top: 8px; }
+
+    /* Search Box */
+    .search-card { background: white; border-radius: 16px; padding: 32px; box-shadow: var(--shadow); margin-bottom: 32px; }
+    .search-card h3 { font-size: 1.1rem; color: var(--navy); margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
+    .search-form { display: flex; gap: 12px; }
+    .search-input { flex: 1; padding: 14px 18px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 1rem; transition: border-color 0.2s; font-family: inherit; letter-spacing: 0.5px; text-transform: uppercase; }
+    .search-input:focus { outline: none; border-color: var(--navy); }
+    .search-btn { padding: 14px 28px; background: var(--navy); color: white; border: none; border-radius: 10px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+    .search-btn:hover { background: #2c3e7a; transform: translateY(-1px); }
+    .search-hint { font-size: 0.8rem; color: var(--gray); margin-top: 10px; }
+
+    /* Result States */
+    .result-area { display: none; }
+    .result-area.visible { display: block; }
+
+    .loading-state { text-align: center; padding: 40px; }
+    .spinner { width: 40px; height: 40px; border: 4px solid #e2e8f0; border-top-color: var(--navy); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .not-found { text-align: center; padding: 40px; background: white; border-radius: 16px; box-shadow: var(--shadow); }
+    .not-found-icon { font-size: 3rem; margin-bottom: 16px; }
+    .not-found h3 { color: var(--danger); margin-bottom: 8px; }
+    .not-found p { color: var(--gray); }
+
+    /* Case Result */
+    .case-card { background: white; border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
+    .case-header { padding: 24px 28px; display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+    .case-header.high { background: linear-gradient(135deg, #fff5f5, #ffe0e0); border-bottom: 3px solid var(--danger); }
+    .case-header.medium { background: linear-gradient(135deg, #fffbf0, #fff0cc); border-bottom: 3px solid var(--warning); }
+    .case-header.low { background: linear-gradient(135deg, #f0fff4, #d4f5d4); border-bottom: 3px solid var(--success); }
+    .case-header.pending { background: linear-gradient(135deg, #f0f4ff, #dce8ff); border-bottom: 3px solid var(--navy); }
+
+    .case-id h3 { font-size: 1.4rem; font-weight: 700; color: var(--navy); font-family: monospace; }
+    .case-id p { font-size: 0.85rem; color: var(--gray); margin-top: 4px; }
+    .risk-badge { padding: 8px 18px; border-radius: 24px; font-size: 0.85rem; font-weight: 700; letter-spacing: 0.5px; }
+    .risk-HIGH { background: var(--danger); color: white; }
+    .risk-MEDIUM { background: var(--warning); color: #333; }
+    .risk-LOW { background: var(--success); color: white; }
+    .risk-null { background: #adb5bd; color: white; }
+
+    .case-body { padding: 28px; }
+    .status-timeline { display: flex; gap: 0; margin-bottom: 28px; overflow-x: auto; }
+    .status-step { flex: 1; text-align: center; position: relative; min-width: 80px; }
+    .status-step::before { content: ''; position: absolute; top: 16px; left: 50%; right: -50%; height: 2px; background: #e2e8f0; z-index: 0; }
+    .status-step:last-child::before { display: none; }
+    .step-circle { width: 32px; height: 32px; border-radius: 50%; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; position: relative; z-index: 1; background: #e2e8f0; color: #adb5bd; font-weight: 700; }
+    .step-circle.done { background: var(--success); color: white; }
+    .step-circle.active { background: var(--navy); color: white; box-shadow: 0 0 0 4px rgba(26,42,74,0.15); }
+    .step-label { font-size: 0.72rem; color: var(--gray); font-weight: 600; }
+    .step-label.active { color: var(--navy); }
+    .step-label.done { color: var(--success); }
+
+    .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .info-item { background: #f8fafc; border-radius: 10px; padding: 14px 18px; }
+    .info-label { font-size: 0.72rem; color: var(--gray); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+    .info-value { font-size: 0.95rem; color: #2d3748; font-weight: 600; }
+
+    .ai-summary { background: var(--light-blue); border-radius: 10px; padding: 16px 20px; margin-bottom: 24px; border-left: 4px solid var(--navy); }
+    .ai-summary h4 { font-size: 0.8rem; color: var(--navy); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .ai-summary p { font-size: 0.9rem; color: #374151; line-height: 1.6; }
+
+    .score-bars { margin-bottom: 24px; }
+    .score-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+    .score-label { font-size: 0.82rem; color: var(--gray); width: 130px; flex-shrink: 0; }
+    .score-bar { flex: 1; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; }
+    .score-fill { height: 100%; border-radius: 4px; transition: width 0.8s ease; }
+    .score-pct { font-size: 0.82rem; font-weight: 700; width: 40px; text-align: right; }
+
+    .fir-section { background: linear-gradient(135deg, #f0fff4, #d4f5d4); border-radius: 12px; padding: 20px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .fir-info h4 { color: var(--success); font-size: 1rem; margin-bottom: 4px; }
+    .fir-info p { font-size: 0.85rem; color: #555; }
+    .btn-download { padding: 10px 24px; background: var(--success); color: white; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s; }
+    .btn-download:hover { background: #218838; transform: translateY(-1px); }
+
+    .legal-sections { margin-top: 20px; }
+    .legal-sections h4 { font-size: 0.85rem; color: var(--navy); font-weight: 700; margin-bottom: 12px; }
+    .section-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+    .section-tag { padding: 4px 12px; background: var(--light-blue); color: var(--navy); border-radius: 20px; font-size: 0.78rem; font-weight: 600; }
+
+    .case-footer { padding: 20px 28px; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+    .hash-info { font-family: monospace; font-size: 0.72rem; color: var(--gray); }
+    .hash-info span { display: block; }
+
+    .contact-box { background: white; border-radius: 16px; padding: 24px 28px; box-shadow: var(--shadow); margin-top: 24px; text-align: center; }
+    .contact-box h3 { color: var(--navy); margin-bottom: 12px; }
+    .contact-box p { color: var(--gray); font-size: 0.9rem; line-height: 1.6; }
+
+    /* Footer */
+    .footer { background: var(--navy); color: rgba(255,255,255,0.6); text-align: center; padding: 20px; font-size: 0.8rem; margin-top: 60px; }
+
+    @media (max-width: 600px) {
+      .search-form { flex-direction: column; }
+      .header-content { flex-direction: column; gap: 12px; }
+      .case-header { flex-direction: column; }
+      .status-timeline { gap: 8px; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="tricolor"></div>
+  <div class="header-content">
+    <a href="/" class="header-brand">
+      <div class="header-logo">AJ</div>
+      <div class="header-title">
+        <h1>AutoJustice AI NEXUS</h1>
+        <p>{{ station_name }}</p>
+      </div>
+    </a>
+    <div class="header-links">
+      <a href="/" class="btn-header outline">Report a Crime</a>
+      <a href="/dashboard" class="btn-header primary">Officer Login</a>
+    </div>
+  </div>
+</header>
+
+<main class="main">
+  <div class="page-title">
+    <h2>Track Your Case</h2>
+    <p>Enter your case number to see the latest status of your report</p>
+  </div>
+
+  <div class="search-card">
+    <h3>🔍 Case Number Lookup</h3>
+    <div class="search-form">
+      <input
+        type="text"
+        id="caseInput"
+        class="search-input"
+        placeholder="e.g. CY-2024-12345678"
+        maxlength="20"
+      />
+      <button class="search-btn" onclick="trackCase()">Track Case</button>
+    </div>
+    <p class="search-hint">Your case number was shown after submitting your report. Format: CY-YYYY-XXXXXXXX</p>
+  </div>
+
+  <!-- Loading -->
+  <div id="loadingArea" class="result-area">
+    <div class="loading-state">
+      <div class="spinner"></div>
+      <p style="color: var(--gray);">Looking up your case...</p>
+    </div>
+  </div>
+
+  <!-- Not Found -->
+  <div id="notFoundArea" class="result-area">
+    <div class="not-found">
+      <div class="not-found-icon">🔎</div>
+      <h3>Case Not Found</h3>
+      <p>No case was found with that number. Please double-check and try again.<br>
+      If you believe this is an error, contact your nearest police station.</p>
+    </div>
+  </div>
+
+  <!-- Case Result -->
+  <div id="caseResult" class="result-area">
+    <div class="case-card" id="caseCard">
+      <div class="case-header" id="caseHeader">
+        <div class="case-id">
+          <h3 id="caseNumber">CY-2024-XXXXXXXX</h3>
+          <p id="caseDate">Submitted on —</p>
+        </div>
+        <span class="risk-badge" id="riskBadge">—</span>
+      </div>
+
+      <div class="case-body">
+        <!-- Status Timeline -->
+        <div class="status-timeline" id="statusTimeline"></div>
+
+        <!-- Info Grid -->
+        <div class="info-grid">
+          <div class="info-item">
+            <div class="info-label">Crime Category</div>
+            <div class="info-value" id="crimeCategory">—</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Subcategory</div>
+            <div class="info-value" id="crimeSubcategory">—</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Assigned Officer</div>
+            <div class="info-value" id="assignedOfficer">Pending</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Evidence Files</div>
+            <div class="info-value" id="evidenceCount">—</div>
+          </div>
+        </div>
+
+        <!-- AI Summary -->
+        <div class="ai-summary" id="aiSummaryBox" style="display:none">
+          <h4>🤖 AI Case Summary</h4>
+          <p id="aiSummary"></p>
+        </div>
+
+        <!-- Scores -->
+        <div class="score-bars">
+          <div class="score-row">
+            <div class="score-label">Authenticity Score</div>
+            <div class="score-bar"><div class="score-fill" id="authBar" style="background: #28a745; width: 0%"></div></div>
+            <div class="score-pct" id="authPct">—</div>
+          </div>
+          <div class="score-row">
+            <div class="score-label">Risk Score</div>
+            <div class="score-bar"><div class="score-fill" id="riskBar" style="background: #dc3545; width: 0%"></div></div>
+            <div class="score-pct" id="riskPct">—</div>
+          </div>
+        </div>
+
+        <!-- CR Download -->
+        <div class="fir-section" id="firSection" style="display:none">
+          <div class="fir-info">
+            <h4>✅ CR Generated</h4>
+            <p>Your Complaint Report has been automatically generated and filed.</p>
+          </div>
+          <a href="#" id="firDownloadBtn" class="btn-download" target="_blank">
+            ⬇ Download Complaint Report
+          </a>
+        </div>
+
+        <!-- Legal Sections -->
+        <div class="legal-sections" id="legalSectionsBox" style="display:none">
+          <h4>⚖️ Applicable Legal Sections</h4>
+          <div class="section-tags" id="legalTags"></div>
+        </div>
+      </div>
+
+      <div class="case-footer">
+        <div class="hash-info">
+          <span id="hashDisplay"></span>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--gray);">
+          Last updated: <span id="lastUpdated">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="contact-box">
+      <h3>Need Help?</h3>
+      <p>
+        If you have additional information or updates about your case, visit your nearest Cyber Crime Police Station.<br>
+        Emergency: <strong>100</strong> | Cyber Helpline: <strong>1930</strong>
+      </p>
+    </div>
+  </div>
+</main>
+
+<footer class="footer">
+  <p>AutoJustice AI NEXUS | {{ station_name }} | Section 65B Compliant | For law enforcement use only.</p>
+</footer>
+
+<script>
+  // Pre-fill from URL if case_number was passed in template
+  const prefilledCase = "{{ case_number }}";
+  if (prefilledCase) {
+    document.getElementById('caseInput').value = prefilledCase;
+    trackCase();
+  }
+
+  // Also check URL query param
+  const urlParams = new URLSearchParams(window.location.search);
+  const qCase = urlParams.get('case');
+  if (qCase && !prefilledCase) {
+    document.getElementById('caseInput').value = qCase;
+    trackCase();
+  }
+
+  document.getElementById('caseInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') trackCase();
+  });
+
+  const STATUSES = [
+    { key: 'PROCESSING',           label: 'Processing'    },
+    { key: 'TRIAGED',              label: 'Under Review'  },
+    { key: 'COMPLAINT_REGISTERED', label: 'CR Generated'  },
+    { key: 'UNDER_INVESTIGATION',  label: 'Investigating' },
+    { key: 'CLOSED',               label: 'Closed'        },
+  ];
+  const STATUS_ORDER = STATUSES.map(s => s.key);
+
+  function showArea(id) {
+    ['loadingArea', 'notFoundArea', 'caseResult'].forEach(a => {
+      const el = document.getElementById(a);
+      el.classList.remove('visible');
+    });
+    if (id) document.getElementById(id).classList.add('visible');
+  }
+
+  async function trackCase() {
+    const input = document.getElementById('caseInput').value.trim().toUpperCase();
+    if (!input) return;
+
+    // Update URL
+    history.replaceState(null, '', `/track/${input}`);
+
+    showArea('loadingArea');
+    try {
+      const res = await fetch(`/api/reports/track/${input}`);
+      if (res.status === 404) {
+        showArea('notFoundArea');
+        return;
+      }
+      if (!res.ok) throw new Error('Server error');
+      const data = await res.json();
+      renderCase(data);
+      showArea('caseResult');
+    } catch (e) {
+      showArea('notFoundArea');
+    }
+  }
+
+  function renderCase(data) {
+    const riskLevelMap = { HIGH: 'high', MEDIUM: 'medium', LOW: 'low', null: 'pending' };
+    const risk = data.risk_level || null;
+
+    document.getElementById('caseNumber').textContent = data.case_number;
+    document.getElementById('caseDate').textContent =
+      'Submitted on ' + new Date(data.created_at).toLocaleDateString('en-IN', {
+        year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+
+    const header = document.getElementById('caseHeader');
+    header.className = 'case-header ' + (riskLevelMap[risk] || 'pending');
+
+    const badge = document.getElementById('riskBadge');
+    badge.textContent = risk ? `${risk} RISK` : 'PENDING';
+    badge.className = `risk-badge risk-${risk}`;
+
+    // Timeline
+    const timeline = document.getElementById('statusTimeline');
+    const currentIdx = STATUS_ORDER.indexOf(data.status);
+    timeline.innerHTML = STATUSES.map((s, i) => {
+      const isDone = i < currentIdx;
+      const isActive = i === currentIdx;
+      const label = isDone ? 'done' : isActive ? 'active' : '';
+      const icon = isDone ? '✓' : isActive ? '●' : (i + 1);
+      return `<div class="status-step">
+        <div class="step-circle ${label}">${icon}</div>
+        <div class="step-label ${label}">${s.label}</div>
+      </div>`;
+    }).join('');
+
+    document.getElementById('crimeCategory').textContent = data.crime_category || 'Under Analysis';
+    document.getElementById('crimeSubcategory').textContent = data.crime_subcategory || '—';
+    document.getElementById('assignedOfficer').textContent = data.assigned_officer || 'Pending Assignment';
+    document.getElementById('evidenceCount').textContent =
+      (data.evidence_files?.length || 0) + ' file(s) uploaded';
+
+    if (data.ai_summary) {
+      document.getElementById('aiSummary').textContent = data.ai_summary;
+      document.getElementById('aiSummaryBox').style.display = 'block';
+    }
+
+    const auth = data.authenticity_score || 0;
+    const riskScore = data.risk_score || 0;
+    document.getElementById('authBar').style.width = (auth * 100) + '%';
+    document.getElementById('authPct').textContent = Math.round(auth * 100) + '%';
+    document.getElementById('riskBar').style.width = (riskScore * 100) + '%';
+    document.getElementById('riskPct').textContent = Math.round(riskScore * 100) + '%';
+
+    if (data.fir_path) {
+      document.getElementById('firSection').style.display = 'flex';
+      document.getElementById('firDownloadBtn').href = `/api/reports/${data.id}/fir/download`;
+    }
+
+    if (data.bns_sections?.length) {
+      const tags = data.bns_sections.map(s =>
+        `<span class="section-tag">${escHtml(s)}</span>`
+      ).join('');
+      document.getElementById('legalTags').innerHTML = tags;
+      document.getElementById('legalSectionsBox').style.display = 'block';
+    }
+
+    if (data.content_hash) {
+      document.getElementById('hashDisplay').textContent =
+        'SHA-256: ' + data.content_hash.substring(0, 32) + '...';
+    }
+    document.getElementById('lastUpdated').textContent =
+      data.updated_at
+        ? new Date(data.updated_at).toLocaleString('en-IN')
+        : new Date(data.created_at).toLocaleString('en-IN');
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+</script>
+</body>
+</html>

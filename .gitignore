@@ -1,0 +1,85 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Environment variables — NEVER commit these
+.env
+backend/.env
+*.env.local
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploaded evidence and generated FIRs (large binary, PII)
+backend/uploads/
+backend/firs/
+
+# ML model artifacts
+backend/ml/models/*.pkl
+backend/ml/models/*.joblib
+backend/ml/models/*.h5
+*.pkl
+*.joblib
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# OS
+__MACOSX/
+._*
+
+# Logs
+*.log
+logs/
+
+# Coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Node (if frontend added later)
+node_modules/
+.next/
+dist/
+
+# Docker volumes
+data/
+
+# Demo artefacts (regenerable via `python demo/run_demo.py`)
+demo/output/
+demo/evidence/*.jpg
+demo/evidence/*.jpeg
+demo/evidence/*.png
+demo/evidence/*.mp4
+demo/evidence/*.webm
+
+# Runtime user data
+backend/archives/
+backend/static/uploads/
+
+# Claude / AI assistant state
+.claude/

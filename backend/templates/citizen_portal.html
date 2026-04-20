@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>File a Cybercrime Complaint — AutoJustice AI NEXUS</title>
+
+  <!-- PWA Meta Tags (Phase 2) -->
+  <link rel="manifest" href="/static/manifest.json" />
+  <meta name="theme-color" content="#1a3f6f" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="AutoJustice" />
+  <meta name="description" content="File cybercrime complaints securely with AI-powered triage and evidence analysis." />
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --gov-blue:    #1a3f6f;
+      --gov-blue-dk: #0f2848;
+      --gov-blue-lt: #eef3fa;
+      --saffron:     #e8650a;
+      --nat-green:   #056835;
+      --red:         #b91c1c;
+      --gray-50:     #f7f8fa;
+      --gray-100:    #eef0f3;
+      --gray-200:    #dde1e7;
+      --gray-400:    #8a94a6;
+      --gray-600:    #4b5563;
+      --gray-900:    #111827;
+      --success:     #15803d;
+      --warning:     #b45309;
+      --border:      #ced4db;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Noto Sans', system-ui, sans-serif; background: var(--gray-50); color: var(--gray-900); font-size: 14px; line-height: 1.5; }
+
+    /* ── Tricolor ── */
+    .tricolor { height: 5px; background: linear-gradient(to right, #FF9933 33.3%, #fff 33.3% 66.6%, #138808 66.6%); }
+
+    /* ── National Header ── */
+    .nat-header {
+      background: var(--gov-blue);
+      color: #fff;
+      padding: 0 24px;
+      display: flex;
+      align-items: stretch;
+      min-height: 72px;
+      border-bottom: 3px solid var(--saffron);
+    }
+    .nat-header-emblem {
+      display: flex;
+      align-items: center;
+      padding: 10px 20px 10px 0;
+      border-right: 1px solid rgba(255,255,255,0.15);
+      margin-right: 20px;
+    }
+    .emblem-circle {
+      width: 52px; height: 52px;
+      border: 2px solid rgba(255,255,255,0.5);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .emblem-circle span:first-child { font-size: 20px; line-height: 1; }
+    .emblem-circle span:last-child  { font-size: 7px; letter-spacing: .5px; color: rgba(255,255,255,0.7); text-transform: uppercase; }
+    .nat-header-text { display: flex; flex-direction: column; justify-content: center; flex: 1; }
+    .nat-header-text .ministry { font-size: 11px; color: rgba(255,255,255,0.65); letter-spacing: .5px; text-transform: uppercase; margin-bottom: 3px; }
+    .nat-header-text .portal    { font-size: 19px; font-weight: 700; letter-spacing: -.2px; }
+    .nat-header-text .tagline   { font-size: 11px; color: rgba(255,255,255,0.55); margin-top: 2px; }
+    .nat-header-nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .nat-header-nav a {
+      color: rgba(255,255,255,0.8); font-size: 12px; font-weight: 500;
+      text-decoration: none; padding: 6px 14px;
+      border: 1px solid rgba(255,255,255,0.25); border-radius: 3px;
+      transition: background .15s, color .15s;
+    }
+    .nat-header-nav a:hover { background: rgba(255,255,255,0.12); color: #fff; }
+    /* Phase 2: Language Switcher */
+    .lang-select {
+      background: rgba(255,255,255,0.10);
+      color: rgba(255,255,255,0.85);
+      border: 1px solid rgba(255,255,255,0.30);
+      border-radius: 3px;
+      padding: 5px 8px;
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+      outline: none;
+    }
+    .lang-select:hover { background: rgba(255,255,255,0.18); }
+    .lang-select option { background: #1a3f6f; color: #fff; }
+
+    /* ── Emergency Bar ── */
+    .emergency-bar {
+      background: #7f1d1d;
+      color: #fef2f2;
+      text-align: center;
+      padding: 7px 16px;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: .1px;
+    }
+    .emergency-bar strong { font-weight: 700; color: #fecaca; }
+
+    /* ── Helpline Strip ── */
+    .helpline-strip {
+      background: var(--gov-blue-dk);
+      padding: 8px 24px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .hl-item { display: flex; align-items: center; gap: 8px; }
+    .hl-num  { font-size: 16px; font-weight: 700; color: #ffd166; letter-spacing: .5px; }
+    .hl-lbl  { font-size: 10px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: .4px; }
+
+    /* ── Page Header Bar ── */
+    .page-title-bar {
+      background: #fff;
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .page-title-bar h2 { font-size: 15px; font-weight: 700; color: var(--gov-blue); }
+    .page-title-bar p  { font-size: 11px; color: var(--gray-400); margin-top: 2px; }
+    .live-badge {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--gov-blue-lt); border: 1px solid #c3d4e8;
+      padding: 5px 12px; border-radius: 3px; font-size: 11px; color: var(--gov-blue);
+    }
+    .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
+
+    /* ── Main Layout ── */
+    .main-wrap { max-width: 860px; margin: 0 auto; padding: 24px 16px 48px; }
+
+    /* ── Stats Strip ── */
+    .stats-strip {
+      display: grid; grid-template-columns: repeat(4,1fr);
+      border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
+      background: #fff; margin-bottom: 20px;
+    }
+    .stat-cell {
+      padding: 12px 16px; text-align: center;
+      border-right: 1px solid var(--border);
+    }
+    .stat-cell:last-child { border-right: none; }
+    .stat-num { font-size: 20px; font-weight: 700; color: var(--gov-blue); }
+    .stat-lbl { font-size: 10px; color: var(--gray-400); text-transform: uppercase; letter-spacing: .4px; margin-top: 2px; }
+    @media (max-width: 600px) {
+      .stats-strip { grid-template-columns: 1fr 1fr; }
+      .stat-cell:nth-child(2) { border-right: none; }
+    }
+
+    /* ── OTP Section ── */
+    #otp-section { margin-bottom: 24px; }
+
+    .section-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+    .section-card-head {
+      background: var(--gov-blue);
+      color: #fff;
+      padding: 10px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 4px 4px 0 0;
+    }
+    .section-card-head .step-num {
+      width: 22px; height: 22px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 50%;
+      font-size: 11px;
+      font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .section-card-body { padding: 20px 18px; }
+
+    /* ── Verified Banner ── */
+    .verified-banner {
+      display: none;
+      background: #f0fdf4;
+      border: 1px solid #86efac;
+      border-radius: 4px;
+      padding: 11px 16px;
+      margin-bottom: 20px;
+      align-items: center;
+      gap: 12px;
+    }
+    .verified-banner.show { display: flex; }
+    .vb-tick {
+      width: 30px; height: 30px; border-radius: 50%;
+      background: var(--success); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700; flex-shrink: 0;
+    }
+    .vb-text strong { font-size: 13px; color: #14532d; display: block; }
+    .vb-text span   { font-size: 11px; color: #166534; }
+
+    /* ── Step Progress ── */
+    .step-progress {
+      display: flex; align-items: center;
+      margin-bottom: 20px; background: #fff;
+      border: 1px solid var(--border); border-radius: 4px;
+      padding: 12px 16px; gap: 0;
+    }
+    .sp-step { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .sp-circle {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--gray-200); color: var(--gray-600);
+      font-size: 12px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      border: 2px solid var(--gray-200);
+    }
+    .sp-step.active .sp-circle { background: var(--gov-blue); color: #fff; border-color: var(--gov-blue); }
+    .sp-step.done   .sp-circle { background: var(--success);  color: #fff; border-color: var(--success); }
+    .sp-label { font-size: 10px; color: var(--gray-400); font-weight: 500; text-align: center; max-width: 72px; line-height: 1.3; }
+    .sp-step.active .sp-label { color: var(--gov-blue); font-weight: 600; }
+    .sp-step.done   .sp-label { color: var(--success); }
+    .sp-line { flex: 1; height: 2px; background: var(--gray-200); max-width: 60px; margin-bottom: 16px; }
+    .sp-line.done { background: var(--success); }
+
+    /* ── Form ── */
+    .form-step { display: none; }
+    .form-step.active { display: block; }
+
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .form-grid.one-col { grid-template-columns: 1fr; }
+    @media (max-width: 580px) { .form-grid { grid-template-columns: 1fr; } }
+    .f-full { grid-column: 1 / -1; }
+
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    label { font-size: 12px; font-weight: 600; color: var(--gray-600); }
+    label .req { color: var(--red); margin-left: 2px; }
+    .f-hint { font-size: 11px; color: var(--gray-400); }
+
+    input[type=text], input[type=email], input[type=tel],
+    input[type=date], input[type=number], textarea, select {
+      width: 100%; padding: 9px 12px;
+      border: 1px solid var(--border); border-radius: 3px;
+      font-size: 13px; font-family: inherit; color: var(--gray-900);
+      background: #fff;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    input:focus, textarea:focus, select:focus {
+      outline: none; border-color: var(--gov-blue);
+      box-shadow: 0 0 0 2px rgba(26,63,111,.12);
+    }
+    input[readonly] { background: var(--gray-50); color: var(--gray-600); cursor: not-allowed; }
+    textarea { resize: vertical; min-height: 110px; line-height: 1.6; }
+
+    .notice-box {
+      background: var(--gov-blue-lt); border-left: 3px solid var(--gov-blue);
+      padding: 10px 14px; font-size: 12px; color: var(--gov-blue); line-height: 1.6;
+      margin-bottom: 16px; border-radius: 0 3px 3px 0;
+    }
+    .warn-box {
+      background: #fffbeb; border-left: 3px solid var(--saffron);
+      padding: 10px 14px; font-size: 12px; color: #78350f; line-height: 1.6;
+      margin-bottom: 16px; border-radius: 0 3px 3px 0;
+    }
+
+    /* ── OTP Input Row ── */
+    .otp-row { display: flex; gap: 10px; align-items: flex-end; }
+    .otp-row .form-group { flex: 1; }
+    .otp-digits {
+      display: flex; gap: 8px; margin-top: 4px;
+    }
+    .otp-digits input {
+      width: 44px; height: 48px; text-align: center;
+      font-size: 20px; font-weight: 700; letter-spacing: 0;
+      padding: 0; border-radius: 3px;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      padding: 9px 20px; border: none; border-radius: 3px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      font-family: inherit; transition: background .15s, opacity .15s;
+      display: inline-flex; align-items: center; gap: 6px;
+      white-space: nowrap;
+    }
+    .btn-primary   { background: var(--gov-blue); color: #fff; }
+    .btn-primary:hover { background: var(--gov-blue-dk); }
+    .btn-primary:disabled { background: var(--gray-200); color: var(--gray-400); cursor: not-allowed; }
+    .btn-secondary { background: var(--gray-100); color: var(--gray-900); border: 1px solid var(--border); }
+    .btn-secondary:hover { background: var(--gray-200); }
+    .btn-success   { background: var(--success); color: #fff; }
+    .btn-success:hover { background: #166534; }
+    .btn-saffron   { background: var(--saffron); color: #fff; }
+    .btn-full      { width: 100%; justify-content: center; }
+
+    .form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--gray-100); }
+
+    /* ── File Upload ── */
+    .dropzone {
+      border: 2px dashed var(--border); border-radius: 3px;
+      padding: 28px 20px; text-align: center; cursor: pointer;
+      background: var(--gray-50); position: relative;
+      transition: border-color .15s, background .15s;
+    }
+    .dropzone:hover, .dropzone.dragover { border-color: var(--gov-blue); background: var(--gov-blue-lt); }
+    .dropzone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+    .dropzone-icon { font-size: 28px; margin-bottom: 8px; color: var(--gray-400); }
+    .dropzone h4 { font-size: 13px; font-weight: 600; color: var(--gray-900); }
+    .dropzone p  { font-size: 11px; color: var(--gray-400); margin-top: 4px; }
+
+    .file-list { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+    .file-item {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--gov-blue-lt); border: 1px solid #c3d4e8;
+      padding: 7px 10px; border-radius: 3px; font-size: 12px;
+    }
+    .file-item .fname { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-item .fsize { color: var(--gray-400); font-size: 10px; white-space: nowrap; }
+    .file-item .frem  { cursor: pointer; color: var(--red); font-size: 14px; line-height: 1; flex-shrink: 0; }
+
+    /* ── Review Table ── */
+    .review-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .review-table tr { border-bottom: 1px solid var(--gray-100); }
+    .review-table tr:last-child { border-bottom: none; }
+    .review-table td { padding: 8px 12px; vertical-align: top; }
+    .review-table td:first-child { width: 38%; color: var(--gray-600); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .3px; }
+
+    /* ── Result ── */
+    #result-section { display: none; }
+    .result-wrap { background: #fff; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+    .result-head {
+      padding: 18px 20px; color: #fff;
+      border-bottom: 3px solid rgba(255,255,255,.2);
+    }
+    .result-head.high   { background: var(--red); }
+    .result-head.medium { background: var(--saffron); }
+    .result-head.low    { background: var(--nat-green); }
+    .result-head.pending{ background: var(--gov-blue); }
+    .result-case { font-size: 22px; font-weight: 700; letter-spacing: 1px; }
+    .result-sub  { font-size: 12px; opacity: .85; margin-top: 4px; }
+    .result-body { padding: 20px; }
+    .result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
+    .rf-label { font-size: 10px; color: var(--gray-400); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+    .rf-value { font-size: 14px; font-weight: 600; margin-top: 3px; }
+    .score-bar-wrap { height: 6px; background: var(--gray-200); border-radius: 2px; overflow: hidden; margin-top: 6px; }
+    .score-bar-fill { height: 100%; border-radius: 2px; transition: width .8s ease; }
+    .result-summary { background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 3px; padding: 12px 14px; font-size: 13px; line-height: 1.7; color: var(--gray-600); margin-top: 12px; }
+    .result-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+    .hash-box { font-family: 'Courier New', monospace; font-size: 11px; background: var(--gray-50); border: 1px solid var(--gray-200); padding: 8px 10px; border-radius: 3px; word-break: break-all; color: var(--gray-600); margin-top: 8px; }
+
+    /* ── Loading Overlay ── */
+    .loading-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(10,20,40,0.8);
+      z-index: 999; align-items: center; justify-content: center;
+      flex-direction: column; gap: 14px; color: #fff;
+    }
+    .loading-overlay.show { display: flex; }
+    .spinner { width: 40px; height: 40px; border: 3px solid rgba(255,255,255,.2); border-top-color: #ffd166; border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-label { font-size: 13px; opacity: .9; text-align: center; max-width: 300px; }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed; bottom: 20px; right: 20px;
+      background: #1e293b; color: #fff;
+      padding: 10px 18px; border-radius: 3px; font-size: 12px; font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0,0,0,.2);
+      transform: translateY(60px); opacity: 0;
+      transition: all .25s; z-index: 1000; max-width: 300px;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.err  { background: var(--red); }
+    .toast.ok   { background: var(--success); }
+
+    /* ── Footer ── */
+    footer {
+      background: var(--gov-blue-dk); color: rgba(255,255,255,.45);
+      text-align: center; padding: 18px; font-size: 11px; margin-top: 40px;
+      border-top: 3px solid var(--saffron);
+    }
+    footer a { color: rgba(255,255,255,.55); text-decoration: none; }
+
+    /* ── Responsive ── */
+    @media (max-width: 640px) {
+      .nat-header { padding: 0 12px; }
+      .nat-header-emblem { display: none; }
+      .nat-header-text .portal { font-size: 15px; }
+      .helpline-strip { padding: 8px 12px; gap: 12px; }
+      .main-wrap { padding: 16px 12px 40px; }
+      .result-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Tricolor -->
+<div class="tricolor"></div>
+
+<!-- National Header -->
+<header class="nat-header">
+  <div class="nat-header-emblem">
+    <div class="emblem-circle">
+      <span>⚖</span>
+      <span>India</span>
+    </div>
+  </div>
+  <div class="nat-header-text">
+    <div class="ministry" data-i18n="ministry">Ministry of Home Affairs, Government of India</div>
+    <div class="portal" data-i18n="portal_name">AutoJustice AI NEXUS</div>
+    <div class="tagline" data-i18n="portal_tagline">National Cyber Crime Complaint Management System</div>
+  </div>
+  <nav class="nat-header-nav">
+    <!-- Phase 2: Language Switcher -->
+    <div id="lang-switcher" style="display:inline-flex;align-items:center;margin-right:8px"></div>
+    <a href="/track" data-i18n="track_case_nav">Track Case</a>
+    <a href="/login" data-i18n="officer_login">Officer Login</a>
+  </nav>
+</header>
+
+<!-- Emergency Bar -->
+<div class="emergency-bar">
+  <strong data-i18n="emergency_label">EMERGENCY?</strong>&nbsp;— <span data-i18n="emergency_msg">Dial 112 immediately. This portal accepts non-emergency cybercrime complaints only.</span>
+</div>
+
+<!-- Helpline Strip -->
+<div class="helpline-strip">
+  <div class="hl-item">
+    <div>
+      <div class="hl-num">1930</div>
+      <div class="hl-lbl" data-i18n="hl_cyber_fraud">Cyber Fraud Helpline</div>
+    </div>
+  </div>
+  <div class="hl-item">
+    <div>
+      <div class="hl-num">112</div>
+      <div class="hl-lbl" data-i18n="hl_emergency">Emergency</div>
+    </div>
+  </div>
+  <div class="hl-item">
+    <div>
+      <div class="hl-num">100</div>
+      <div class="hl-lbl" data-i18n="hl_police">Police</div>
+    </div>
+  </div>
+  <div class="hl-item">
+    <div>
+      <div class="hl-num">181</div>
+      <div class="hl-lbl" data-i18n="hl_women">Women Helpline</div>
+    </div>
+  </div>
+</div>
+
+<!-- Page Title Bar -->
+<div class="page-title-bar">
+  <div>
+    <h2 data-i18n="file_complaint_heading">File a Cybercrime Complaint</h2>
+    <p data-i18n="file_complaint_sub">Complete all steps to submit your complaint and receive a Complaint Reference Number</p>
+  </div>
+  <div class="live-badge">
+    <div class="live-dot"></div>
+    <span data-i18n="system_active">System Active</span> — <strong id="tickerTotal">—</strong>&nbsp;<span data-i18n="complaints_processed">Complaints Processed</span>
+  </div>
+</div>
+
+<!-- Stats Strip -->
+<div class="main-wrap">
+  <div class="stats-strip">
+    <div class="stat-cell">
+      <div class="stat-num" id="statTotal">—</div>
+      <div class="stat-lbl" data-i18n="stat_total">Complaints Filed</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-num" id="statFirs">—</div>
+      <div class="stat-lbl" data-i18n="stat_firs">Reports Generated</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-num" id="statToday">—</div>
+      <div class="stat-lbl" data-i18n="stat_today">Filed Today</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-num" id="statFake">—</div>
+      <div class="stat-lbl" data-i18n="stat_fake">False Complaints Detected</div>
+    </div>
+  </div>
+
+  <!-- Verified Banner (shown after OTP) -->
+  <div class="verified-banner" id="verifiedBanner">
+    <div class="vb-tick">&#10003;</div>
+    <div class="vb-text">
+      <strong data-i18n="email_verified">Email Verified</strong>
+      <span id="verifiedEmail">—</span>
+    </div>
+  </div>
+
+  <!-- ── STEP 0: Email Verification ── -->
+  <div id="otp-section">
+    <div class="section-card">
+      <div class="section-card-head">
+        <div class="step-num">1</div>
+        <span data-i18n="section_email_verify">Email Verification — Verify your identity before filing</span>
+      </div>
+      <div class="section-card-body">
+        <div class="notice-box" data-i18n="email_verify_notice">
+          You must verify your email address before submitting a complaint. A 6-digit One-Time Password (OTP) will be sent to your email. This ensures your complaint is traceable and legally actionable.
+        </div>
+
+        <!-- Email input row -->
+        <div id="otpEmailRow">
+          <div class="otp-row">
+            <div class="form-group">
+              <label for="otpEmail"><span data-i18n="email_label">Email Address</span> <span class="req">*</span></label>
+              <input type="email" id="otpEmail" data-i18n-placeholder="email_placeholder" placeholder="Enter your email address" autocomplete="email" />
+              <span class="f-hint" data-i18n="otp_email_hint">A verification code will be sent to this address</span>
+            </div>
+            <button class="btn btn-primary" id="sendOtpBtn" onclick="sendOTP()" style="margin-bottom:18px" data-i18n="send_otp_btn">
+              Send OTP
+            </button>
+          </div>
+        </div>
+
+        <!-- OTP entry (hidden until sent) -->
+        <div id="otpEntryRow" style="display:none; margin-top:14px;">
+          <div style="background:#f7f9fc;border:1px solid #c3d4e8;border-radius:3px;padding:14px 16px;margin-bottom:14px;">
+            <p style="font-size:12px;color:var(--gov-blue);font-weight:600;margin-bottom:2px;" data-i18n="otp_sent_title">OTP sent to your email</p>
+            <p style="font-size:11px;color:var(--gray-400);" data-i18n="otp_sent_sub">Check your inbox and spam folder. Valid for 5 minutes.</p>
+          </div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label><span data-i18n="enter_otp_label">Enter 6-digit OTP</span> <span class="req">*</span></label>
+            <div class="otp-digits">
+              <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="d0" />
+              <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="d1" />
+              <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="d2" />
+              <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="d3" />
+              <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="d4" />
+              <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="d5" />
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <button class="btn btn-success" id="verifyOtpBtn" onclick="verifyOTP()" data-i18n="verify_otp_btn">Verify OTP</button>
+            <button class="btn btn-secondary" id="resendBtn" onclick="resendOTP()" disabled>
+              <span data-i18n="resend_otp_btn">Resend OTP</span> (<span id="resendTimer">60</span>s)
+            </button>
+            <button class="btn btn-secondary" onclick="resetOtpFlow()" style="margin-left:auto;font-size:11px" data-i18n="change_email_btn">Change Email</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── FORM (hidden until email verified) ── -->
+  <div id="formSection" style="display:none;">
+
+    <!-- Step Progress -->
+    <div class="step-progress">
+      <div class="sp-step active" id="step-1">
+        <div class="sp-circle">2</div>
+        <div class="sp-label" data-i18n="step_your_details">Your Details</div>
+      </div>
+      <div class="sp-line" id="line-1"></div>
+      <div class="sp-step" id="step-2">
+        <div class="sp-circle">3</div>
+        <div class="sp-label" data-i18n="step_incident">Incident Details</div>
+      </div>
+      <div class="sp-line" id="line-2"></div>
+      <div class="sp-step" id="step-3">
+        <div class="sp-circle">4</div>
+        <div class="sp-label" data-i18n="step_evidence">Upload Evidence</div>
+      </div>
+      <div class="sp-line" id="line-3"></div>
+      <div class="sp-step" id="step-4">
+        <div class="sp-circle">5</div>
+        <div class="sp-label" data-i18n="step_review">Review & Submit</div>
+      </div>
+    </div>
+
+    <form id="reportForm" enctype="multipart/form-data">
+
+      <!-- STEP 1: Personal Details -->
+      <div class="form-step active" id="formStep1">
+        <div class="section-card">
+          <div class="section-card-head">
+            <div class="step-num">2</div>
+            <span data-i18n="section_complainant">Complainant Details</span>
+          </div>
+          <div class="section-card-body">
+            <div class="notice-box" data-i18n="dpdp_notice">
+              Your personal information is protected under the DPDP Act 2023 and will only be shared with the assigned investigating officer.
+            </div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label><span data-i18n="full_name">Full Name</span> <span class="req">*</span></label>
+                <input type="text" id="complainant_name" name="complainant_name" data-i18n-placeholder="full_name_placeholder" placeholder="As per Aadhaar / Government ID" required />
+              </div>
+              <div class="form-group">
+                <label data-i18n="mobile_label">Mobile Number</label>
+                <input type="tel" id="complainant_phone" name="complainant_phone" data-i18n-placeholder="mobile_placeholder" placeholder="10-digit mobile number" maxlength="10" />
+                <span class="f-hint" data-i18n="mobile_hint">Investigating officer may contact you on this number</span>
+              </div>
+              <div class="form-group">
+                <label data-i18n="email_label">Email Address</label>
+                <input type="email" id="complainant_email" name="complainant_email" readonly />
+                <span class="f-hint" style="color:var(--success);" data-i18n="verified_otp_hint">Verified via OTP</span>
+              </div>
+              <div class="form-group">
+                <label data-i18n="address_label">Residential Address</label>
+                <input type="text" id="complainant_address" name="complainant_address" data-i18n-placeholder="address_placeholder" placeholder="Full address with city and PIN code" />
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-primary" onclick="goToStep(2)" data-i18n="next_incident">Next: Incident Details →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 2: Incident -->
+      <div class="form-step" id="formStep2">
+        <div class="section-card">
+          <div class="section-card-head">
+            <div class="step-num">3</div>
+            <span data-i18n="section_incident">Incident Information</span>
+          </div>
+          <div class="section-card-body">
+            <div class="warn-box" data-i18n="bns_warn">
+              Providing false information in a complaint is an offence under BNS Section 211. Please describe the incident truthfully and accurately.
+            </div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label data-i18n="incident_date_label">Date of Incident</label>
+                <input type="date" id="incident_date" name="incident_date" />
+              </div>
+              <div class="form-group">
+                <label data-i18n="incident_location_label">Incident Location / Platform</label>
+                <input type="text" id="incident_location" name="incident_location" data-i18n-placeholder="incident_location_placeholder" placeholder="e.g., WhatsApp, UPI App, Website URL" />
+              </div>
+              <div class="form-group f-full">
+                <label><span data-i18n="desc_label">Description of Incident</span> <span class="req">*</span></label>
+                <textarea id="incident_description" name="incident_description"
+                  data-i18n-placeholder="desc_placeholder"
+                  placeholder="Describe exactly what happened: how you were contacted, what was said, what money or data was involved, names/numbers/links of the accused, and any other relevant details. Be as specific as possible."
+                  rows="7"></textarea>
+                <span class="f-hint" id="desc-counter" data-i18n="min_chars_hint">Minimum 20 characters required</span>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-secondary" onclick="goToStep(1)" data-i18n="back_btn">← Back</button>
+              <button type="button" class="btn btn-primary" onclick="goToStep(3)" data-i18n="next_upload">Next: Upload Evidence →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 3: Evidence -->
+      <div class="form-step" id="formStep3">
+        <div class="section-card">
+          <div class="section-card-head">
+            <div class="step-num">4</div>
+            <span data-i18n="section_evidence">Evidence Upload</span>
+          </div>
+          <div class="section-card-body">
+            <div class="notice-box" data-i18n="evidence_notice">
+              Upload screenshots, PDFs, transaction records, conversation exports, or any other digital evidence. All files are hashed with SHA-256 for legal chain-of-custody integrity.
+            </div>
+            <div class="dropzone" id="dropzone">
+              <input type="file" id="evidence_files" name="evidence_files" multiple accept=".jpg,.jpeg,.png,.gif,.bmp,.tiff,.pdf,.txt,.mp4,.mov,.avi,.webm,.mkv" />
+              <div class="dropzone-icon">&#128206;</div>
+              <h4 data-i18n="dropzone_title">Drag files here or click to select</h4>
+              <p data-i18n="dropzone_sub">Accepted: JPG, PNG, PDF, TXT — Max 25 MB per file</p>
+            </div>
+            <div class="file-list" id="fileList"></div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-secondary" onclick="goToStep(2)" data-i18n="back_btn">← Back</button>
+              <button type="button" class="btn btn-primary" onclick="goToStep(4)" data-i18n="next_review">Next: Review →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 4: Review & Submit -->
+      <div class="form-step" id="formStep4">
+        <div class="section-card">
+          <div class="section-card-head">
+            <div class="step-num">5</div>
+            <span data-i18n="section_review">Review &amp; Submit Complaint</span>
+          </div>
+          <div class="section-card-body">
+            <div class="notice-box" data-i18n="review_notice">
+              Please review all details carefully before submission. Once submitted, the complaint will be analysed by our AI system and assigned to an investigating officer.
+            </div>
+            <div id="reviewContent"></div>
+            <div class="warn-box" style="margin-top:14px;margin-bottom:0;" data-i18n="declaration">
+              By submitting this complaint, I declare that the information provided is true to the best of my knowledge. I understand that filing a false complaint is a punishable offence.
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-secondary" onclick="goToStep(3)" data-i18n="back_btn">← Back</button>
+              <button type="submit" class="btn btn-success" id="submitBtn" data-i18n="submit_btn">
+                Submit Complaint
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </form>
+  </div>
+
+  <!-- Result Section -->
+  <div id="result-section">
+    <div class="result-wrap">
+      <div class="result-head pending" id="resultHead">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.6px;opacity:.8;margin-bottom:4px;" id="resultBadge" data-i18n="result_registered">Complaint Registered</div>
+        <div class="result-case" id="resultCaseNumber">—</div>
+        <div class="result-sub" id="resultStatusMsg">Processing...</div>
+      </div>
+      <div class="result-body">
+        <div class="result-grid">
+          <div>
+            <div class="rf-label" data-i18n="risk_classification">Risk Classification</div>
+            <div class="rf-value" id="resultRiskLevel">—</div>
+          </div>
+          <div>
+            <div class="rf-label" data-i18n="crime_category_label">Crime Category</div>
+            <div class="rf-value" id="resultCrimeCategory">—</div>
+          </div>
+          <div>
+            <div class="rf-label" data-i18n="complaint_report_label">Complaint Report</div>
+            <div class="rf-value" id="resultFirStatus">—</div>
+          </div>
+          <div>
+            <div class="rf-label" data-i18n="auth_score_label">Authenticity Score</div>
+            <div class="rf-value" id="resultAuthenticity">—</div>
+            <div class="score-bar-wrap"><div class="score-bar-fill" id="authBar" style="width:0%;background:var(--success)"></div></div>
+          </div>
+        </div>
+        <div class="rf-label" style="margin-bottom:6px" data-i18n="ai_summary_label">AI Case Summary</div>
+        <div class="result-summary" id="resultAiSummary">—</div>
+        <div style="margin-top:14px">
+          <div class="rf-label" style="margin-bottom:4px" data-i18n="integrity_hash_label">Content Integrity Hash (SHA-256)</div>
+          <div class="hash-box" id="resultHash">—</div>
+        </div>
+        <div class="result-actions">
+          <button class="btn btn-primary" id="downloadFirBtn" style="display:none" data-i18n="download_fir">Download Complaint Report (PDF)</button>
+          <a href="/track" class="btn btn-secondary" data-i18n="track_this_case">Track This Case</a>
+          <button class="btn btn-secondary" onclick="submitAnother()" data-i18n="file_another">File Another Complaint</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div><!-- /main-wrap -->
+
+<!-- Footer -->
+<footer>
+  <p data-i18n="footer_portal">AutoJustice AI NEXUS — National Cyber Crime Complaint Management System</p>
+  <p style="margin-top:6px"><span data-i18n="ministry">Ministry of Home Affairs, Government of India</span> &nbsp;|&nbsp; <a href="https://cybercrime.gov.in" target="_blank">cybercrime.gov.in</a> &nbsp;|&nbsp; CERT-In</p>
+</footer>
+
+<!-- Loading Overlay -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-label" id="loadingText">Processing complaint...</div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script src="/static/js/citizen.js"></script>
+
+<!-- PWA Service Worker Registration (Phase 2) -->
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/static/sw.js', { scope: '/' })
+      .then(reg => {
+        console.log('[PWA] Service Worker registered:', reg.scope);
+        // Listen for sync success messages from SW
+        navigator.serviceWorker.addEventListener('message', (event) => {
+          if (event.data && event.data.type === 'SYNC_SUCCESS') {
+            console.log('[PWA] Offline draft synced:', event.data.caseData);
+            showToast('Your offline complaint has been submitted!', 'success');
+          }
+        });
+      })
+      .catch(err => console.warn('[PWA] Service Worker registration failed:', err));
+  });
+}
+
+// Online/offline status indicator
+window.addEventListener('offline', () => {
+  document.title = '📡 Offline — AutoJustice AI NEXUS';
+  showToast('⚠ You are offline. Your draft will be saved locally.', 'warning');
+});
+window.addEventListener('online', () => {
+  document.title = 'File a Cybercrime Complaint — AutoJustice AI NEXUS';
+  showToast('✓ Back online. You can submit your complaint.', 'success');
+});
+
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.className = 'toast show' + (type ? ' toast-' + type : '');
+  setTimeout(() => { t.className = 'toast'; }, 5000);
+}
+</script>
+</body>
+</html>

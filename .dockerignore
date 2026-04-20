@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.Python
+
+# Virtual environments
+venv/
+env/
+.env.local
+.env.development
+
+# Sensitive — never build into image
+backend/.env
+
+# Databases & uploads (use volumes instead)
+backend/autojustice.db
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/firs/*
+!backend/firs/.gitkeep
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Test & dev artifacts
+*.log
+*.tmp
+*.bak
+pytest_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Implementation plan PDF (generated artifact)
+AutoJustice_AI_NEXUS_Implementation_Plan.pdf
+generate_plan.py

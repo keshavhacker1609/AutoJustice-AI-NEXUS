@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Officer Login | AutoJustice AI NEXUS</title>
+  <style>
+    :root {
+      --saffron: #FF9933; --green: #138808; --navy: #1a2a4a;
+      --white: #ffffff; --danger: #dc3545;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: linear-gradient(135deg, #0f1b35 0%, #1a2a4a 50%, #2c3e7a 100%);
+      min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
+    }
+    .login-wrapper { width: 100%; max-width: 420px; }
+    .tricolor { height: 5px; border-radius: 4px 4px 0 0; background: linear-gradient(to right, var(--saffron) 33%, var(--white) 33% 66%, var(--green) 66%); }
+    .login-card { background: white; border-radius: 0 0 16px 16px; padding: 36px 36px 32px; box-shadow: 0 24px 60px rgba(0,0,0,0.4); }
+
+    .login-logo { text-align: center; margin-bottom: 28px; }
+    .login-logo .emblem { font-size: 3.5rem; display: block; margin-bottom: 8px; }
+    .login-logo h1 { font-size: 1.3rem; color: var(--navy); font-weight: 800; letter-spacing: -0.3px; }
+    .login-logo p { font-size: 0.82rem; color: #6c757d; margin-top: 4px; }
+
+    .login-title { font-size: 0.75rem; font-weight: 700; color: #6c757d; text-transform: uppercase; letter-spacing: 1px; text-align: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid #e9ecef; }
+
+    .form-group { margin-bottom: 18px; }
+    .form-label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--navy); margin-bottom: 6px; }
+    .form-input {
+      width: 100%; padding: 13px 16px; border: 2px solid #e2e8f0; border-radius: 9px;
+      font-size: 0.95rem; font-family: inherit; transition: border-color 0.2s;
+      background: #fafafa;
+    }
+    .form-input:focus { outline: none; border-color: var(--navy); background: white; }
+
+    .error-box { background: #fff5f5; border: 1.5px solid #fecdd3; border-radius: 8px; padding: 12px 16px; color: var(--danger); font-size: 0.85rem; margin-bottom: 18px; display: none; }
+    .error-box.visible { display: block; }
+
+    .login-btn {
+      width: 100%; padding: 14px; background: var(--navy); color: white; border: none;
+      border-radius: 9px; font-size: 1rem; font-weight: 700; cursor: pointer;
+      transition: all 0.2s; letter-spacing: 0.3px;
+    }
+    .login-btn:hover { background: #2c3e7a; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(26,42,74,0.3); }
+    .login-btn:disabled { background: #adb5bd; cursor: not-allowed; transform: none; }
+
+    .login-footer { text-align: center; margin-top: 24px; }
+    .login-footer a { color: var(--navy); text-decoration: none; font-size: 0.85rem; }
+    .login-footer a:hover { text-decoration: underline; }
+
+    .warning-box { background: #fffbf0; border: 1.5px solid #fcd34d; border-radius: 8px; padding: 10px 14px; font-size: 0.78rem; color: #92400e; margin-top: 20px; display: flex; align-items: flex-start; gap: 8px; }
+    .warning-box span { flex-shrink: 0; }
+
+    .spinner-sm { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.4); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+<div class="login-wrapper">
+  <div class="tricolor"></div>
+  <div class="login-card">
+    <div class="login-logo">
+      <span class="emblem">🛡️</span>
+      <h1>AutoJustice AI NEXUS</h1>
+      <p>{{ station_name }}</p>
+    </div>
+    <div class="login-title">🔐 Officer Secure Access</div>
+
+    <div class="error-box" id="errorBox"></div>
+
+    <form id="loginForm" onsubmit="handleLogin(event)">
+      <div class="form-group">
+        <label class="form-label" for="username">Badge / Username</label>
+        <input type="text" id="username" class="form-input" placeholder="Enter your username" required autocomplete="username" />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="password">Password</label>
+        <input type="password" id="password" class="form-input" placeholder="Enter your password" required autocomplete="current-password" />
+      </div>
+      <button type="submit" class="login-btn" id="loginBtn">Sign In to Dashboard</button>
+    </form>
+
+    <div class="warning-box">
+      <span>⚠️</span>
+      <div>Unauthorized access is a criminal offence under the IT Act 2000, Section 66. All login activity is logged and monitored.</div>
+    </div>
+
+    <div class="login-footer">
+      <a href="/">← Back to Citizen Portal</a>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Redirect if already logged in
+  const existing = localStorage.getItem('aj_token');
+  if (existing) {
+    fetch('/api/auth/me', {
+      headers: { 'Authorization': 'Bearer ' + existing }
+    }).then(r => {
+      if (r.ok) window.location.href = '/dashboard';
+      else localStorage.removeItem('aj_token');
+    }).catch(() => localStorage.removeItem('aj_token'));
+  }
+
+  async function handleLogin(e) {
+    e.preventDefault();
+    const btn = document.getElementById('loginBtn');
+    const errBox = document.getElementById('errorBox');
+    errBox.classList.remove('visible');
+
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-sm"></span>Authenticating...';
+
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        localStorage.setItem('aj_token', data.access_token);
+        localStorage.setItem('aj_officer', JSON.stringify({
+          id: data.officer_id,
+          name: data.full_name,
+          role: data.role,
+          badge: data.badge_number,
+        }));
+        window.location.href = '/dashboard';
+      } else {
+        const err = await res.json();
+        errBox.textContent = err.detail || 'Invalid credentials. Please try again.';
+        errBox.classList.add('visible');
+        btn.disabled = false;
+        btn.textContent = 'Sign In to Dashboard';
+      }
+    } catch {
+      errBox.textContent = 'Connection error. Please try again.';
+      errBox.classList.add('visible');
+      btn.disabled = false;
+      btn.textContent = 'Sign In to Dashboard';
+    }
+  }
+</script>
+</body>
+</html>

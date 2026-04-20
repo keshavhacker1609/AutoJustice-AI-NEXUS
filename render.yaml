@@ -1,0 +1,49 @@
+# AutoJustice AI NEXUS — Render Deployment Configuration
+# Uses Docker runtime so Tesseract OCR system package is available.
+# Docs: https://render.com/docs/docker
+
+services:
+  - type: web
+    name: autojustice-ai-nexus
+    runtime: docker           # Use our Dockerfile (installs Tesseract + poppler)
+    plan: starter             # $7/mo — free tier sleeps after 15 min inactivity
+    region: singapore         # singapore | oregon | ohio | frankfurt
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true          # Render auto-generates a secure random secret
+      - key: GEMINI_API_KEY
+        sync: false                  # SET THIS MANUALLY in Render dashboard
+      - key: GEMINI_MODEL
+        value: gemini-1.5-pro
+      - key: DATABASE_URL
+        fromDatabase:
+          name: autojustice-db
+          property: connectionString
+      - key: UPLOAD_DIR
+        value: /tmp/uploads          # NOTE: ephemeral on Render free tier
+      - key: FIR_OUTPUT_DIR
+        value: /tmp/firs             # NOTE: ephemeral on Render free tier
+      - key: ALLOWED_ORIGINS
+        value: https://autojustice-ai-nexus.onrender.com
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: STATION_NAME
+        value: Cyber Crime Police Station
+      - key: DEFAULT_ADMIN_USERNAME
+        value: admin
+      - key: DEFAULT_ADMIN_PASSWORD
+        sync: false                  # SET THIS MANUALLY — do NOT use default in prod
+      - key: JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "480"
+      - key: DEBUG
+        value: "false"
+
+databases:
+  - name: autojustice-db
+    plan: free                # Free PostgreSQL — 1 GB storage, 90-day retention
+    region: singapore
+    databaseName: autojustice
+    user: autojustice_user
