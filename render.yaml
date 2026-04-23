@@ -6,7 +6,7 @@ services:
   - type: web
     name: autojustice-ai-nexus
     runtime: docker           # Use our Dockerfile (installs Tesseract + poppler)
-    plan: starter             # $7/mo — free tier sleeps after 15 min inactivity
+    plan: free                # Free tier — sleeps after 15 min inactivity, wakes in ~30s
     region: singapore         # singapore | oregon | ohio | frankfurt
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
