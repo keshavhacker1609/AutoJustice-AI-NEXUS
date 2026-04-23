@@ -15,7 +15,7 @@ email-validator==2.2.0
 
 # ─── Database (SQLite prototype → PostgreSQL production) ─────────────────────
 sqlalchemy==2.0.32
-# psycopg2-binary==2.9.9   # PostgreSQL — only needed on Render/Linux, not Windows SQLite dev
+psycopg2-binary==2.9.9   # PostgreSQL — required on Render
 
 # ─── AI & OCR ─────────────────────────────────────────────────────────────────
 google-genai>=1.0.0
@@ -33,7 +33,8 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 bcrypt==3.2.2
 
-# ─── Image Forensics ──────────────────────────────────────────────────────────
+# ─── Image & Video Forensics ─────────────────────────────────────────────────
+opencv-python-headless>=4.10.0
 numpy>=2.0.0
 scikit-learn>=1.6.0
 joblib>=1.4.2
