@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     twilio_auth_token: str = Field(default="")
     twilio_from_number: str = Field(default="")           # +1XXXXXXXXXX
     fast2sms_api_key: str = Field(default="")             # Fast2SMS API key (India)
+    twofactor_api_key: str = Field(default="")            # 2Factor.in API key (India OTP)
 
     # ─── DigiLocker OAuth 2.0 (Citizen Identity Verification) ────────
     digilocker_client_id: str = Field(default="")

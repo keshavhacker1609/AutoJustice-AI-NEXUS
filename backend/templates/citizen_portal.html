@@ -160,28 +160,54 @@
       .stat-cell:nth-child(2) { border-right: none; }
     }
 
-    /* ── Verify Section (DigiLocker + OTP tabs) ── */
+    /* ── Verify Section ── */
     #verify-section { margin-bottom: 24px; }
 
-    /* Verification Method Tabs */
-    .verify-tabs {
-      display: flex; gap: 0; border-bottom: 2px solid var(--border);
-      margin-bottom: 20px;
+    /* ── Dual Verification Panels ── */
+    .dv-req-notice {
+      background: var(--gov-blue-lt); border: 1px solid #c3d4e8;
+      border-radius: 4px; padding: 10px 14px; margin-bottom: 16px;
+      font-size: 12px; color: var(--gov-blue); line-height: 1.6;
     }
-    .vtab {
-      padding: 10px 20px; border: none; background: none;
+    .dv-checklist { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 18px; }
+    .dv-check-item {
+      display: flex; align-items: center; gap: 8px;
       font-size: 13px; font-weight: 600; color: var(--gray-400);
-      cursor: pointer; border-bottom: 3px solid transparent;
-      margin-bottom: -2px; font-family: inherit; transition: all .15s;
-      display: flex; align-items: center; gap: 7px;
     }
-    .vtab:hover { color: var(--gov-blue); background: var(--gray-50); }
-    .vtab.active { color: var(--gov-blue); border-bottom-color: var(--gov-blue); }
-    .vtab .vtab-badge {
-      font-size: 9px; background: var(--saffron); color: #fff;
-      padding: 2px 6px; border-radius: 10px; font-weight: 700;
-      letter-spacing: .3px;
+    .dv-check-item.done { color: var(--success); }
+    .dv-check-circle {
+      width: 22px; height: 22px; border-radius: 50%;
+      border: 2px solid var(--gray-400);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; flex-shrink: 0;
     }
+    .dv-check-item.done .dv-check-circle { background: var(--success); border-color: var(--success); color: #fff; }
+
+    .dv-panel { border: 1.5px solid var(--border); border-radius: 6px; margin-bottom: 14px; overflow: hidden; transition: border-color .2s; }
+    .dv-panel.dv-done { border-color: #86efac; }
+    .dv-panel-head {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 16px; background: var(--gray-50); border-bottom: 1px solid var(--border);
+    }
+    .dv-panel.dv-done .dv-panel-head { background: #dcfce7; border-bottom-color: #86efac; }
+    .dv-panel-icon { font-size: 20px; flex-shrink: 0; }
+    .dv-panel-label { flex: 1; }
+    .dv-panel-label strong { font-size: 13px; font-weight: 700; color: var(--gray-900); display: block; }
+    .dv-panel-label span { font-size: 11px; color: var(--gray-400); }
+    .dv-panel.dv-done .dv-panel-label strong { color: #14532d; }
+    .dv-panel.dv-done .dv-panel-label span { color: #166534; }
+    .dv-badge { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 3px; letter-spacing: .3px; flex-shrink: 0; }
+    .dv-badge.dv-badge-req { background: #fee2e2; color: var(--red); }
+    .dv-badge.dv-badge-ok  { background: #dcfce7; color: var(--success); }
+    .dv-panel-body { padding: 16px; }
+    .dv-panel.dv-done .dv-panel-body { display: none; }
+    .dv-done-msg { padding: 10px 16px; font-size: 12px; color: #166534; font-weight: 600; background: #f0fdf4; }
+
+    .dv-optional { border: 1.5px dashed #cbd5e1; border-radius: 6px; margin-bottom: 16px; }
+    .dv-opt-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; font-size: 12px; }
+    .dv-opt-head:hover { background: var(--gray-50); }
+    .dv-opt-body { padding: 0 14px 14px; }
+    .dv-opt-toggle { margin-left: auto; font-size: 16px; color: var(--gray-400); transition: transform .2s; }
 
     /* DigiLocker Verify Button */
     .dl-verify-btn {
@@ -561,153 +587,105 @@
     </div>
   </div>
 
-  <!-- ── STEP 1: Identity Verification (DigiLocker OR Email OTP) ── -->
+  <!-- ── STEP 1: Identity Verification (Mobile OTP + Email OTP — both required) ── -->
   <div id="verify-section">
     <div class="section-card">
       <div class="section-card-head">
         <div class="step-num">1</div>
-        <span>Identity Verification — Verify your identity before filing</span>
+        <span>Identity Verification — Mobile &amp; Email OTP both required</span>
       </div>
       <div class="section-card-body">
 
-        <!-- ── Method Tabs ── -->
-        <div class="verify-tabs">
-          <button class="vtab active" id="tab-digilocker" onclick="switchVerifyTab('digilocker')">
-            🔒 DigiLocker / Aadhaar
-            <span class="vtab-badge">RECOMMENDED</span>
-          </button>
-          <button class="vtab" id="tab-phone" onclick="switchVerifyTab('phone')">
-            📱 Mobile OTP
-          </button>
-          <button class="vtab" id="tab-email" onclick="switchVerifyTab('email')">
-            ✉ Email OTP
-          </button>
+        <div class="dv-req-notice">
+          <strong>Both verifications are mandatory</strong> — Complete Mobile OTP <em>and</em> Email OTP below before you can submit a complaint.
+          DigiLocker (Aadhaar) verification is optional but boosts legal credibility.
         </div>
 
-        <!-- ════ DigiLocker Tab ════ -->
-        <div id="vt-digilocker">
-
-          <!-- Unverified state -->
-          <div id="dlUnverifiedPanel">
-            <div class="notice-box" style="margin-bottom:16px">
-              <strong>Aadhaar-backed identity verification</strong> — Your name, date of birth and gender
-              will be fetched directly from your DigiLocker account linked to Aadhaar. This provides
-              the strongest legal backing for your complaint.
-            </div>
-
-            <button class="dl-verify-btn" id="dlVerifyBtn" onclick="openDigiLockerPopup()">
-              <div class="dl-logo-box">🔐</div>
-              <div class="dl-btn-text">
-                <strong>Verify with DigiLocker</strong>
-                <span>Opens the official DigiLocker login in a secure popup window</span>
-              </div>
-              <div class="dl-arrow">&#8250;</div>
-            </button>
-
-            <div style="background:#fffbeb;border-left:3px solid var(--saffron);padding:9px 13px;border-radius:0 3px 3px 0;font-size:11px;color:#78350f;line-height:1.6">
-              &#9888;&nbsp; A popup window will open — please allow popups for this site.
-              After logging in with your mobile number and Aadhaar OTP on DigiLocker,
-              you will be automatically redirected back here.
-            </div>
+        <!-- Checklist -->
+        <div class="dv-checklist">
+          <div class="dv-check-item" id="dv-check-phone">
+            <div class="dv-check-circle" id="dv-cc-phone"></div>
+            📱 Mobile OTP
           </div>
-
-          <!-- Verified state -->
-          <div class="dl-verified-card" id="dlVerifiedCard">
-            <div class="dl-verified-header">
-              <div class="dl-tick">&#10003;</div>
-              <div>
-                <strong>Aadhaar Identity Verified via DigiLocker</strong>
-                <span>Your identity has been authenticated and saved securely</span>
-              </div>
-            </div>
-            <div class="dl-id-grid">
-              <div class="dl-id-cell">
-                <div class="dl-id-label">Verified Name</div>
-                <div class="dl-id-value" id="dlVerifiedName">—</div>
-              </div>
-              <div class="dl-id-cell">
-                <div class="dl-id-label">Aadhaar (Masked)</div>
-                <div class="dl-id-value" id="dlVerifiedAadhaar">—</div>
-              </div>
-              <div class="dl-id-cell">
-                <div class="dl-id-label">Date of Birth</div>
-                <div class="dl-id-value" id="dlVerifiedDob">—</div>
-              </div>
-              <div class="dl-id-cell">
-                <div class="dl-id-label">Gender</div>
-                <div class="dl-id-value" id="dlVerifiedGender">—</div>
-              </div>
-            </div>
-            <div style="margin-top:12px">
-              <button class="btn btn-success btn-full" onclick="proceedAfterDigiLocker()" id="dlProceedBtn">
-                &#10003;&nbsp; Continue to File Complaint →
-              </button>
-            </div>
+          <div class="dv-check-item" id="dv-check-email">
+            <div class="dv-check-circle" id="dv-cc-email"></div>
+            ✉ Email OTP
           </div>
+        </div>
 
-        </div><!-- /vt-digilocker -->
-
-        <!-- ════ Mobile OTP Tab ════ -->
-        <div id="vt-phone" style="display:none">
-          <div class="notice-box" style="margin-bottom:16px">
-            A <strong>6-digit OTP</strong> will be sent to your Indian mobile number via SMS.
-            Your number is only used for verification — never stored in plaintext.
+        <!-- ── Panel 1: Mobile OTP ── -->
+        <div class="dv-panel" id="dvp-phone">
+          <div class="dv-panel-head">
+            <div class="dv-panel-icon">📱</div>
+            <div class="dv-panel-label">
+              <strong>Step 1 — Mobile OTP</strong>
+              <span>Verify your Indian mobile number via SMS</span>
+            </div>
+            <div class="dv-badge dv-badge-req" id="dv-badge-phone">REQUIRED</div>
           </div>
-
-          <!-- Phone input row -->
-          <div id="phoneInputRow">
-            <div class="otp-row">
-              <div class="form-group" style="flex:1">
-                <label for="phoneNumber">Mobile Number <span class="req">*</span></label>
-                <div style="display:flex;align-items:center;gap:0">
-                  <span style="padding:9px 12px;background:var(--gray-50);border:1px solid var(--border);border-right:none;border-radius:3px 0 0 3px;font-size:13px;color:var(--gray-600);white-space:nowrap">🇮🇳 +91</span>
-                  <input type="tel" id="phoneNumber" placeholder="10-digit mobile number"
-                    maxlength="10" inputmode="numeric" pattern="[6-9][0-9]{9}"
-                    style="border-radius:0 3px 3px 0;flex:1" />
+          <div class="dv-panel-body" id="dvp-phone-body">
+            <div class="notice-box" style="margin-bottom:14px">
+              A <strong>6-digit OTP</strong> will be sent to your Indian mobile number via SMS.
+            </div>
+            <div id="phoneInputRow">
+              <div class="otp-row">
+                <div class="form-group" style="flex:1">
+                  <label for="phoneNumber">Mobile Number <span class="req">*</span></label>
+                  <div style="display:flex;align-items:center;gap:0">
+                    <span style="padding:9px 12px;background:var(--gray-50);border:1px solid var(--border);border-right:none;border-radius:3px 0 0 3px;font-size:13px;color:var(--gray-600);white-space:nowrap">🇮🇳 +91</span>
+                    <input type="tel" id="phoneNumber" placeholder="10-digit mobile number"
+                      maxlength="10" inputmode="numeric" pattern="[6-9][0-9]{9}"
+                      style="border-radius:0 3px 3px 0;flex:1" />
+                  </div>
+                  <span class="f-hint">Enter your 10-digit Indian mobile number (starts with 6-9)</span>
                 </div>
-                <span class="f-hint">Enter your 10-digit Indian mobile number (starts with 6-9)</span>
-              </div>
-              <button class="btn btn-primary" id="sendPhoneOtpBtn" onclick="sendPhoneOTP()" style="margin-bottom:18px;white-space:nowrap">
-                Send OTP
-              </button>
-            </div>
-          </div>
-
-          <!-- OTP entry (hidden until sent) -->
-          <div id="phoneOtpEntryRow" style="display:none; margin-top:14px;">
-            <div style="background:#f7f9fc;border:1px solid #c3d4e8;border-radius:3px;padding:14px 16px;margin-bottom:14px;">
-              <p style="font-size:12px;color:var(--gov-blue);font-weight:600;margin-bottom:2px;">OTP sent to your mobile</p>
-              <p style="font-size:11px;color:var(--gray-400);">Check your SMS inbox. Valid for 5 minutes.</p>
-            </div>
-            <div class="form-group" style="margin-bottom:12px;">
-              <label>Enter 6-digit OTP <span class="req">*</span></label>
-              <div class="otp-digits">
-                <input type="text" class="phone-otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="p0" />
-                <input type="text" class="phone-otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="p1" />
-                <input type="text" class="phone-otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="p2" />
-                <input type="text" class="phone-otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="p3" />
-                <input type="text" class="phone-otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="p4" />
-                <input type="text" class="phone-otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="p5" />
+                <button class="btn btn-primary" id="sendPhoneOtpBtn" onclick="sendPhoneOTP()" style="margin-bottom:18px;white-space:nowrap">Send OTP</button>
               </div>
             </div>
-            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-              <button class="btn btn-success" id="verifyPhoneOtpBtn" onclick="verifyPhoneOTP()">Verify OTP</button>
-              <button class="btn btn-secondary" id="phoneResendBtn" onclick="resendPhoneOTP()" disabled>
-                Resend OTP (<span id="phoneResendTimer">60</span>s)
-              </button>
-              <button class="btn btn-secondary" onclick="resetPhoneOtpFlow()" style="margin-left:auto;font-size:11px">Change Number</button>
+            <div id="phoneOtpEntryRow" style="display:none; margin-top:14px;">
+              <div style="background:#f7f9fc;border:1px solid #c3d4e8;border-radius:3px;padding:14px 16px;margin-bottom:14px;">
+                <p style="font-size:12px;color:var(--gov-blue);font-weight:600;margin-bottom:2px;">OTP sent to your mobile</p>
+                <p style="font-size:11px;color:var(--gray-400);">Check your SMS inbox. Valid for 5 minutes.</p>
+              </div>
+              <div class="form-group" style="margin-bottom:12px;">
+                <label>Enter 6-digit OTP <span class="req">*</span></label>
+                <div class="otp-digits">
+                  <input type="text" class="phone-otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="p0" />
+                  <input type="text" class="phone-otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="p1" />
+                  <input type="text" class="phone-otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="p2" />
+                  <input type="text" class="phone-otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="p3" />
+                  <input type="text" class="phone-otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="p4" />
+                  <input type="text" class="phone-otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="p5" />
+                </div>
+              </div>
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <button class="btn btn-success" id="verifyPhoneOtpBtn" onclick="verifyPhoneOTP()">Verify OTP</button>
+                <button class="btn btn-secondary" id="phoneResendBtn" onclick="resendPhoneOTP()" disabled>
+                  Resend OTP (<span id="phoneResendTimer">60</span>s)
+                </button>
+                <button class="btn btn-secondary" onclick="resetPhoneOtpFlow()" style="margin-left:auto;font-size:11px">Change Number</button>
+              </div>
             </div>
           </div>
-        </div><!-- /vt-phone -->
+          <div class="dv-done-msg" id="dvp-phone-done" style="display:none">
+            ✅ &nbsp;<span id="dv-phone-done-text">Mobile verified via SMS OTP</span>
+          </div>
+        </div>
 
-        <!-- ════ Email OTP Tab ════ -->
-        <div id="vt-email" style="display:none">
-          <div id="otp-section">
-            <div class="notice-box" style="margin-bottom:16px">
-              You must verify your email address before submitting a complaint. A 6-digit One-Time Password (OTP) will be sent to your email.
+        <!-- ── Panel 2: Email OTP ── -->
+        <div class="dv-panel" id="dvp-email">
+          <div class="dv-panel-head">
+            <div class="dv-panel-icon">✉</div>
+            <div class="dv-panel-label">
+              <strong>Step 2 — Email OTP</strong>
+              <span>Verify your email address</span>
             </div>
-
-            <!-- Email input row -->
+            <div class="dv-badge dv-badge-req" id="dv-badge-email">REQUIRED</div>
+          </div>
+          <div class="dv-panel-body" id="dvp-email-body">
+            <div class="notice-box" style="margin-bottom:14px">
+              A <strong>6-digit OTP</strong> will be sent to your email address.
+            </div>
             <div id="otpEmailRow">
               <div class="otp-row">
                 <div class="form-group">
@@ -718,8 +696,6 @@
                 <button class="btn btn-primary" id="sendOtpBtn" onclick="sendOTP()" style="margin-bottom:18px">Send OTP</button>
               </div>
             </div>
-
-            <!-- OTP entry (hidden until sent) -->
             <div id="otpEntryRow" style="display:none; margin-top:14px;">
               <div style="background:#f7f9fc;border:1px solid #c3d4e8;border-radius:3px;padding:14px 16px;margin-bottom:14px;">
                 <p style="font-size:12px;color:var(--gov-blue);font-weight:600;margin-bottom:2px;">OTP sent to your email</p>
@@ -745,7 +721,58 @@
               </div>
             </div>
           </div>
-        </div><!-- /vt-email -->
+          <div class="dv-done-msg" id="dvp-email-done" style="display:none">
+            ✅ &nbsp;<span id="dv-email-done-text">Email verified via OTP</span>
+          </div>
+        </div>
+
+        <!-- ── Optional: DigiLocker / Aadhaar ── -->
+        <div class="dv-optional" id="dv-digilocker-wrap">
+          <div class="dv-opt-head" onclick="toggleDigiLockerPanel()">
+            <span>🔒</span>
+            <div>
+              <strong style="font-size:12px;font-weight:700;color:var(--gov-blue)">Optional: Aadhaar Identity Verification via DigiLocker</strong>
+              <div style="font-size:11px;color:var(--gray-400);margin-top:1px">Not required — Aadhaar verification boosts your complaint's legal credibility score</div>
+            </div>
+            <span class="dv-opt-toggle" id="dv-opt-toggle">&#8250;</span>
+          </div>
+          <div class="dv-opt-body" id="dv-opt-body" style="display:none">
+            <div id="dlUnverifiedPanel">
+              <button class="dl-verify-btn" id="dlVerifyBtn" onclick="openDigiLockerPopup()">
+                <div class="dl-logo-box">🔐</div>
+                <div class="dl-btn-text">
+                  <strong>Verify with DigiLocker</strong>
+                  <span>Opens the official DigiLocker login in a secure popup window</span>
+                </div>
+                <div class="dl-arrow">&#8250;</div>
+              </button>
+              <div style="background:#fffbeb;border-left:3px solid var(--saffron);padding:9px 13px;border-radius:0 3px 3px 0;font-size:11px;color:#78350f;line-height:1.6">
+                &#9888;&nbsp; A popup window will open — please allow popups for this site.
+              </div>
+            </div>
+            <div class="dl-verified-card" id="dlVerifiedCard">
+              <div class="dl-verified-header">
+                <div class="dl-tick">&#10003;</div>
+                <div>
+                  <strong>Aadhaar Identity Verified via DigiLocker</strong>
+                  <span>Your identity has been authenticated and saved securely</span>
+                </div>
+              </div>
+              <div class="dl-id-grid">
+                <div class="dl-id-cell"><div class="dl-id-label">Verified Name</div><div class="dl-id-value" id="dlVerifiedName">—</div></div>
+                <div class="dl-id-cell"><div class="dl-id-label">Aadhaar (Masked)</div><div class="dl-id-value" id="dlVerifiedAadhaar">—</div></div>
+                <div class="dl-id-cell"><div class="dl-id-label">Date of Birth</div><div class="dl-id-value" id="dlVerifiedDob">—</div></div>
+                <div class="dl-id-cell"><div class="dl-id-label">Gender</div><div class="dl-id-value" id="dlVerifiedGender">—</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Proceed button — unlocks when BOTH phone + email verified -->
+        <button class="btn btn-success btn-full" id="dv-proceed-btn" disabled onclick="proceedWithBothVerified()"
+          style="margin-top:6px;padding:12px;font-size:14px;justify-content:center">
+          🔒 Verify both above to continue
+        </button>
 
       </div><!-- /section-card-body -->
     </div>

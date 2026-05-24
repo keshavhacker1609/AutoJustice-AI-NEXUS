@@ -362,14 +362,45 @@ def _send_otp_sms(to_phone: str, otp: str) -> bool:
             logger.error(f"Twilio SMS failed for {to_phone[:6]}****: {e}")
             return False
 
+    # ── 2Factor.in (India — instant OTP, no website verification needed) ────────
+    elif settings.sms_provider == "2factor":
+        api_key = getattr(settings, "twofactor_api_key", "") or settings.fast2sms_api_key
+        if not api_key:
+            logger.warning("2Factor: API key not configured (TWOFACTOR_API_KEY)")
+            return False
+        try:
+            import httpx as _httpx
+            digits = re.sub(r'\D', '', to_phone)
+            if len(digits) == 12 and digits.startswith("91"):
+                digits = digits[2:]
+            if len(digits) != 10:
+                logger.warning(f"2Factor: invalid phone format {to_phone}")
+                return False
+
+            url = f"https://2factor.in/API/V1/{api_key}/SMS/{digits}/{otp}"
+            with _httpx.Client(timeout=12.0) as _client:
+                resp = _client.get(url)
+
+            logger.info(f"2Factor HTTP {resp.status_code}: {resp.text[:200]}")
+            result = resp.json()
+
+            if result.get("Status") == "Success":
+                logger.info(f"2Factor OTP sent to {digits[:4]}****{digits[-2:]}")
+                return True
+            else:
+                logger.error(f"2Factor error: {result.get('Details', result)}")
+                return False
+        except Exception as e:
+            logger.error(f"2Factor send failed for {to_phone}: {e}")
+            return False
+
     # ── Fast2SMS (India) ──────────────────────────────────────────────
     elif settings.sms_provider == "fast2sms":
         if not settings.fast2sms_api_key:
             logger.warning("Fast2SMS: API key not configured (FAST2SMS_API_KEY)")
             return False
         try:
-            import urllib.request, urllib.parse, json as _json
-            # Strip country code for Fast2SMS (expects 10-digit Indian mobile)
+            import httpx as _httpx, json as _json
             digits = re.sub(r'\D', '', to_phone)
             if len(digits) == 12 and digits.startswith("91"):
                 digits = digits[2:]
@@ -377,26 +408,16 @@ def _send_otp_sms(to_phone: str, otp: str) -> bool:
                 logger.warning(f"Fast2SMS: invalid phone format {to_phone}")
                 return False
 
-            payload = _json.dumps({
-                "route": "otp",
-                "variables_values": otp,
-                "flash": "0",
-                "numbers": digits,
-            }).encode("utf-8")
-
-            req = urllib.request.Request(
-                "https://www.fast2sms.com/dev/bulkV2",
-                data=payload,
-                headers={
-                    "authorization": settings.fast2sms_api_key,
-                    "Content-Type": "application/json",
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                result = _json.loads(resp.read())
-            if result.get("return"):
-                logger.info(f"Fast2SMS OTP sent to {digits[:4]}****")
+            with _httpx.Client(timeout=12.0) as _client:
+                resp = _client.post(
+                    "https://www.fast2sms.com/dev/bulkV2",
+                    json={"route": "otp", "variables_values": otp, "flash": 0, "numbers": digits},
+                    headers={"authorization": settings.fast2sms_api_key, "Cache-Control": "no-cache"},
+                )
+            logger.info(f"Fast2SMS HTTP {resp.status_code}: {resp.text[:300]}")
+            result = resp.json()
+            if result.get("return") is True:
+                logger.info(f"Fast2SMS OTP sent to {digits[:4]}****{digits[-2:]}")
                 return True
             else:
                 logger.error(f"Fast2SMS error: {result.get('message', 'unknown')}")

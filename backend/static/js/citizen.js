@@ -22,31 +22,95 @@ let _setLang = null;
 let currentStep = 1;
 let selectedFiles = [];
 let submittedReportId = null;
-let otpSessionToken = null;          // Set after successful OTP verification
-let digilockerSessionToken = null;   // Set after DigiLocker Aadhaar verification
-let digilockerProfile = null;        // Full profile from DigiLocker
+let phoneOtpToken  = null;   // session token after phone SMS OTP verified
+let emailOtpToken  = null;   // session token after email OTP verified
+let digilockerSessionToken = null;
+let digilockerProfile = null;
 let verifiedEmail = null;
-let resendCountdownTimer = null;
-let _dlPopupTimer = null;            // Timer for DigiLocker popup poll
-
-// ── Verification Tab Switcher ────────────────────────────────────────────────
-
-let phoneResendCountdownTimer = null;
 let verifiedPhone = null;
+let resendCountdownTimer = null;
+let phoneResendCountdownTimer = null;
+let _dlPopupTimer = null;
 
-function switchVerifyTab(tab) {
-  // Hide all panels and deactivate all tabs
-  ['digilocker', 'phone', 'email'].forEach(t => {
-    const tabEl   = document.getElementById(`tab-${t}`);
-    const panelEl = document.getElementById(`vt-${t}`);
-    if (tabEl)   tabEl.classList.remove('active');
-    if (panelEl) panelEl.style.display = 'none';
-  });
-  // Show selected
-  const active = document.getElementById(`tab-${tab}`);
-  const panel  = document.getElementById(`vt-${tab}`);
-  if (active) active.classList.add('active');
-  if (panel)  panel.style.display = '';
+// ── DigiLocker optional panel toggle ─────────────────────────────────────────
+function toggleDigiLockerPanel() {
+  const body   = document.getElementById('dv-opt-body');
+  const toggle = document.getElementById('dv-opt-toggle');
+  if (!body) return;
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : 'block';
+  if (toggle) toggle.style.transform = isOpen ? '' : 'rotate(90deg)';
+}
+
+// ── Dual verification checker ─────────────────────────────────────────────────
+function _checkBothVerified() {
+  const phoneOk = !!phoneOtpToken;
+  const emailOk = !!emailOtpToken;
+
+  // Update checklist items
+  const cp = document.getElementById('dv-check-phone');
+  const cc = document.getElementById('dv-cc-phone');
+  if (cp) cp.classList.toggle('done', phoneOk);
+  if (cc) cc.textContent = phoneOk ? '✓' : '';
+
+  const ce = document.getElementById('dv-check-email');
+  const cce = document.getElementById('dv-cc-email');
+  if (ce) ce.classList.toggle('done', emailOk);
+  if (cce) cce.textContent = emailOk ? '✓' : '';
+
+  const btn = document.getElementById('dv-proceed-btn');
+  if (btn) {
+    btn.disabled = !(phoneOk && emailOk);
+    if (phoneOk && emailOk) {
+      btn.textContent = '✅  Both verified — Continue to File Complaint →';
+    }
+  }
+}
+
+function proceedWithBothVerified() {
+  const vs = document.getElementById('verify-section');
+  if (vs) vs.style.display = 'none';
+
+  // Show verified banner
+  const banner = document.getElementById('verifiedBanner');
+  if (banner) banner.classList.add('show');
+  const bannerTitle = document.getElementById('verifiedBannerTitle');
+  if (bannerTitle) bannerTitle.textContent = 'Mobile & Email Verified';
+  const ve = document.getElementById('verifiedEmail');
+  if (ve) {
+    const parts = [];
+    if (verifiedPhone) parts.push('+91 ' + verifiedPhone);
+    if (verifiedEmail) parts.push(verifiedEmail);
+    if (digilockerProfile) parts.push('+ Aadhaar (DigiLocker)');
+    ve.textContent = parts.join(' · ') + ' — Identity confirmed';
+  }
+
+  // Pre-fill form fields
+  const phoneField = document.getElementById('complainant_phone');
+  if (phoneField && verifiedPhone) {
+    phoneField.value    = verifiedPhone;
+    phoneField.readOnly = true;
+    phoneField.style.background = 'var(--gray-50)';
+    phoneField.title = 'Verified via SMS OTP';
+  }
+  const emailField = document.getElementById('complainant_email');
+  if (emailField && verifiedEmail) {
+    emailField.value    = verifiedEmail;
+    emailField.readOnly = true;
+  }
+  // Pre-fill name from DigiLocker if available
+  if (digilockerProfile && digilockerProfile.name) {
+    const nameField = document.getElementById('complainant_name');
+    if (nameField) {
+      nameField.value    = digilockerProfile.name;
+      nameField.readOnly = true;
+      nameField.style.background = 'var(--gray-50)';
+      nameField.title    = 'Name verified via Aadhaar DigiLocker';
+    }
+  }
+
+  document.getElementById('formSection').style.display = 'block';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // ── Mobile Phone OTP Verification ────────────────────────────────────────────
@@ -123,35 +187,23 @@ async function verifyPhoneOTP() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Verification failed');
 
-    otpSessionToken = data.session_token;
-    verifiedPhone   = phone;
-
-    // Hide verify section
-    const vs = document.getElementById('verify-section');
-    if (vs) vs.style.display = 'none';
+    phoneOtpToken = data.session_token;
+    verifiedPhone = phone;
 
     if (phoneResendCountdownTimer) clearInterval(phoneResendCountdownTimer);
 
-    // Show verified banner
-    const banner = document.getElementById('verifiedBanner');
-    if (banner) banner.classList.add('show');
-    const bannerTitle = document.getElementById('verifiedBannerTitle');
-    if (bannerTitle) bannerTitle.textContent = 'Mobile Number Verified';
-    const ve = document.getElementById('verifiedEmail');
-    if (ve) ve.textContent = '+91 ' + phone + ' — Verified via SMS OTP';
-
-    // Reveal form and pre-fill phone
-    document.getElementById('formSection').style.display = 'block';
-    const phoneField = document.getElementById('complainant_phone');
-    if (phoneField) {
-      phoneField.value    = phone;
-      phoneField.readOnly = true;
-      phoneField.style.background = 'var(--gray-50)';
-      phoneField.title = 'Phone verified via OTP';
-    }
+    // Collapse phone panel to verified state
+    const panel = document.getElementById('dvp-phone');
+    if (panel) panel.classList.add('dv-done');
+    const badge = document.getElementById('dv-badge-phone');
+    if (badge) { badge.textContent = '✓ VERIFIED'; badge.className = 'dv-badge dv-badge-ok'; }
+    const doneMsg = document.getElementById('dvp-phone-done');
+    const doneTxt = document.getElementById('dv-phone-done-text');
+    if (doneTxt) doneTxt.textContent = '+91 ' + phone + ' — Verified via SMS OTP';
+    if (doneMsg) doneMsg.style.display = 'block';
 
     showToast('✓ Mobile number verified!', 'ok');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    _checkBothVerified();
 
   } catch (err) {
     btn.disabled = false;
@@ -323,35 +375,12 @@ function _onDigiLockerVerified(profile) {
   const genderMap = { M: 'Male', F: 'Female', T: 'Transgender' };
   _setText('dlVerifiedGender',  genderMap[profile.gender] || profile.gender || '—');
 
-  showToast('✓ Aadhaar identity verified via DigiLocker!', 'ok');
+  showToast('✓ Aadhaar identity verified via DigiLocker! Now complete phone & email OTP.', 'ok');
 }
 
 function proceedAfterDigiLocker() {
-  // Hide verify section
-  const vs = document.getElementById('verify-section');
-  if (vs) vs.style.display = 'none';
-
-  // Show verified banner with DigiLocker info
-  const banner = document.getElementById('verifiedBanner');
-  if (banner) banner.classList.add('show');
-  const bannerTitle = document.getElementById('verifiedBannerTitle');
-  if (bannerTitle) bannerTitle.textContent = 'DigiLocker (Aadhaar) Verified';
-  const ve = document.getElementById('verifiedEmail');
-  if (ve) ve.textContent = (digilockerProfile.name || 'Verified Citizen') + ' — Aadhaar Verified';
-
-  // Reveal form
-  document.getElementById('formSection').style.display = 'block';
-
-  // Pre-fill name from Aadhaar profile (read-only — legally verified)
-  const nameField = document.getElementById('complainant_name');
-  if (nameField && digilockerProfile.name) {
-    nameField.value    = digilockerProfile.name;
-    nameField.readOnly = true;
-    nameField.title    = 'Name verified via DigiLocker Aadhaar — cannot be edited';
-    nameField.style.background = 'var(--gray-50)';
-  }
-
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  // DigiLocker verified — just show toast; proceed button still requires phone+email
+  showToast('✓ DigiLocker Aadhaar verified! Now complete phone & email OTP.', 'ok');
 }
 
 function _resetDlBtn() {
@@ -442,36 +471,27 @@ async function verifyOTP() {
 
     if (!res.ok) throw new Error(data.detail || 'Verification failed');
 
-    otpSessionToken = data.session_token;
-    verifiedEmail   = email;
+    emailOtpToken = data.session_token;
+    verifiedEmail = email;
 
-    // Hide verification section
-    const vs = document.getElementById('verify-section');
-    if (vs) vs.style.display = 'none';
-
-    // Stop countdown
     if (resendCountdownTimer) clearInterval(resendCountdownTimer);
 
-    // Show verified banner with email info
-    const banner = document.getElementById('verifiedBanner');
-    if (banner) banner.classList.add('show');
-    const bannerTitle = document.getElementById('verifiedBannerTitle');
-    if (bannerTitle) bannerTitle.textContent = 'Email Verified';
-    const ve = document.getElementById('verifiedEmail');
-    if (ve) ve.textContent = email + ' — Verified via OTP';
+    // Collapse email panel to verified state
+    const panel = document.getElementById('dvp-email');
+    if (panel) panel.classList.add('dv-done');
+    const badge = document.getElementById('dv-badge-email');
+    if (badge) { badge.textContent = '✓ VERIFIED'; badge.className = 'dv-badge dv-badge-ok'; }
+    const doneMsg = document.getElementById('dvp-email-done');
+    const doneTxt = document.getElementById('dv-email-done-text');
+    if (doneTxt) doneTxt.textContent = email + ' — Verified via OTP';
+    if (doneMsg) doneMsg.style.display = 'block';
 
-    // Reveal form
-    document.getElementById('formSection').style.display = 'block';
-
-    // Pre-fill email in form (read-only)
+    // Pre-fill email field immediately
     const emailField = document.getElementById('complainant_email');
-    if (emailField) {
-      emailField.value = email;
-      emailField.readOnly = true;
-    }
+    if (emailField) { emailField.value = email; }
 
-    showToast('Email verified. Please fill in your complaint details.', 'ok');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    showToast('✓ Email verified!', 'ok');
+    _checkBothVerified();
 
   } catch (err) {
     btn.disabled = false;
@@ -842,31 +862,22 @@ function buildReview() {
     </tr>
   `).join('');
 
-  // Build identity verification badge
+  // Build identity verification badge — always show both phone + email
   let idVerifyBadge = '';
-  if (digilockerSessionToken && digilockerProfile) {
-    const genderMap = { M: 'Male', F: 'Female', T: 'Transgender' };
-    idVerifyBadge = `
-      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:5px;padding:10px 14px;margin-bottom:12px;font-size:12px;">
-        <div style="font-weight:700;color:#14532d;margin-bottom:6px;">✓ Identity Verified via DigiLocker (Aadhaar)</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;color:#166534">
-          <span><strong>Name:</strong> ${escapeHtml(digilockerProfile.name || '—')}</span>
-          <span><strong>Aadhaar:</strong> ${escapeHtml(digilockerProfile.aadhaar_masked || '—')}</span>
-          <span><strong>DOB:</strong> ${escapeHtml(digilockerProfile.dob || '—')}</span>
-          <span><strong>Gender:</strong> ${escapeHtml(genderMap[digilockerProfile.gender] || digilockerProfile.gender || '—')}</span>
-        </div>
-      </div>`;
-  } else if (otpSessionToken && verifiedPhone) {
-    idVerifyBadge = `
-      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:5px;padding:10px 14px;margin-bottom:12px;font-size:12px;">
-        <span style="font-weight:700;color:#14532d;">✓ Mobile Verified via SMS OTP — +91 ${escapeHtml(verifiedPhone)}</span>
-      </div>`;
-  } else if (otpSessionToken) {
-    idVerifyBadge = `
-      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:5px;padding:10px 14px;margin-bottom:12px;font-size:12px;">
-        <span style="font-weight:700;color:#14532d;">✓ Email Verified via OTP — ${escapeHtml(verifiedEmail || '—')}</span>
-      </div>`;
-  }
+  const phoneLine = verifiedPhone ? `✅ Mobile +91 ${escapeHtml(verifiedPhone)} — SMS OTP` : '';
+  const emailLine = verifiedEmail ? `✅ Email ${escapeHtml(verifiedEmail)} — OTP` : '';
+  const dlLine    = (digilockerSessionToken && digilockerProfile)
+    ? `🔒 Aadhaar ${escapeHtml(digilockerProfile.aadhaar_masked || '')} — DigiLocker Verified` : '';
+
+  idVerifyBadge = `
+    <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:5px;padding:10px 14px;margin-bottom:12px;font-size:12px;">
+      <div style="font-weight:700;color:#14532d;margin-bottom:6px;">Identity Verification</div>
+      <div style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#166534">
+        ${phoneLine ? `<span>${phoneLine}</span>` : ''}
+        ${emailLine ? `<span>${emailLine}</span>` : ''}
+        ${dlLine    ? `<span>${dlLine}</span>`    : ''}
+      </div>
+    </div>`;
 
   document.getElementById('reviewContent').innerHTML = `
     ${idVerifyBadge}
@@ -898,12 +909,10 @@ function setupFormSubmit() {
 
     const formData = new FormData();
 
-    // Attach identity verification token (DigiLocker takes priority over Email OTP)
-    if (digilockerSessionToken) {
-      formData.append('digilocker_session_token', digilockerSessionToken);
-    } else if (otpSessionToken) {
-      formData.append('otp_session_token', otpSessionToken);
-    }
+    // Send both phone + email OTP tokens (both required by backend)
+    if (phoneOtpToken)  formData.append('phone_otp_token', phoneOtpToken);
+    if (emailOtpToken)  formData.append('otp_session_token', emailOtpToken);
+    if (digilockerSessionToken) formData.append('digilocker_session_token', digilockerSessionToken);
 
     formData.append('complainant_name',      document.getElementById('complainant_name').value);
     formData.append('incident_description',  document.getElementById('incident_description').value);

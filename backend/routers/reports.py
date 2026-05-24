@@ -77,6 +77,7 @@ async def submit_report(
     incident_location: Optional[str] = Form(None),
     digilocker_session_token: Optional[str] = Form(None),
     otp_session_token: Optional[str] = Form(None),
+    phone_otp_token: Optional[str] = Form(None),
     evidence_files: List[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
 ):
@@ -88,26 +89,36 @@ async def submit_report(
     client_ip = _get_client_ip(request)
     user_agent = request.headers.get("User-Agent", "")[:500]
 
-    # ── 0. Identity verification check (OTP email or DigiLocker) ─────────
+    # ── 0. Identity verification — require BOTH phone OTP + email OTP ────────
+    phone_otp_verified = False
+    email_otp_verified = False
     digilocker_verified = False
     digilocker_name_verified = None
-    digilocker_profile = None       # Full DigiLocker profile dict (DB-backed)
+    digilocker_profile = None
 
-    # Check OTP session token first
-    if otp_session_token:
-        try:
-            from routers.auth import _otp_store
-            import time as _time
+    try:
+        from routers.auth import _otp_store
+        import time as _time
+
+        # Verify phone OTP token
+        if phone_otp_token:
+            entry = _otp_store.get(f"sess_{phone_otp_token}")
+            if entry and entry.get("expires_at", 0) > _time.time():
+                phone_otp_verified = True
+                logger.info(f"Phone OTP verified: {str(entry.get('identifier',''))[:6]}** IP={client_ip}")
+
+        # Verify email OTP token (sent as otp_session_token)
+        if otp_session_token:
             entry = _otp_store.get(f"sess_{otp_session_token}")
             if entry and entry.get("expires_at", 0) > _time.time():
-                digilocker_verified = True
-                digilocker_name_verified = entry.get("email")
-                logger.info(f"OTP session verified: {digilocker_name_verified} IP={client_ip}")
-        except Exception as e:
-            logger.warning(f"OTP session verify error: {e}")
+                email_otp_verified = True
+                logger.info(f"Email OTP verified: {str(entry.get('identifier',''))[:4]}** IP={client_ip}")
 
-    # Fallback: DigiLocker session token (DB-backed)
-    elif digilocker_session_token:
+    except Exception as e:
+        logger.warning(f"OTP session verify error: {e}")
+
+    # Optional: DigiLocker Aadhaar (bonus — boosts trust score)
+    if digilocker_session_token:
         try:
             from services.digilocker_service import DigiLockerService
             from config import settings as _s
@@ -123,6 +134,21 @@ async def submit_report(
                 logger.info(f"DigiLocker verified: {digilocker_name_verified} IP={client_ip}")
         except Exception as e:
             logger.warning(f"DigiLocker session verify error: {e}")
+
+    # ── Enforce: BOTH phone + email must be verified ──────────────────────────
+    if not phone_otp_verified:
+        raise HTTPException(
+            status_code=401,
+            detail="Mobile number verification is required. Please complete SMS OTP verification."
+        )
+    if not email_otp_verified:
+        raise HTTPException(
+            status_code=401,
+            detail="Email verification is required. Please complete Email OTP verification."
+        )
+
+    # Identity confirmed via dual OTP
+    digilocker_verified_flag = phone_otp_verified and email_otp_verified
 
     # ── 1. Input validation ───────────────────────────────────────────
     description = incident_description.strip()
@@ -145,10 +171,10 @@ async def submit_report(
     is_freq_suspicious, freq_reason = _trust_service.check_submission_frequency(db, reporter_profile)
 
     # ── 3. Create initial report record ───────────────────────────────
-    # DigiLocker verification boosts base trust score
-    if digilocker_verified:
+    # Dual OTP + DigiLocker verification boosts base trust score
+    if digilocker_verified or digilocker_verified_flag:
         trust_score = min(1.0, trust_score + 0.15)
-        logger.info(f"DigiLocker trust boost applied: score={trust_score:.2f}")
+        logger.info(f"Identity verification trust boost applied: score={trust_score:.2f}")
 
     report = Report(
         id=str(uuid.uuid4()),
@@ -165,7 +191,7 @@ async def submit_report(
         user_agent=user_agent,
         reporter_profile_id=reporter_profile.id if reporter_profile else None,
         reporter_trust_score=trust_score,
-        digilocker_verified=digilocker_verified,
+        digilocker_verified=(digilocker_verified or digilocker_verified_flag),
         digilocker_name=digilocker_name_verified,
         # Extended DigiLocker fields (populated only when DigiLocker was used)
         digilocker_dob=(digilocker_profile.get("dob") if digilocker_profile else None),
