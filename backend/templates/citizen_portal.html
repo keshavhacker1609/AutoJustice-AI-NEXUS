@@ -576,6 +576,9 @@
             🔒 DigiLocker / Aadhaar
             <span class="vtab-badge">RECOMMENDED</span>
           </button>
+          <button class="vtab" id="tab-phone" onclick="switchVerifyTab('phone')">
+            📱 Mobile OTP
+          </button>
           <button class="vtab" id="tab-email" onclick="switchVerifyTab('email')">
             ✉ Email OTP
           </button>
@@ -643,6 +646,59 @@
           </div>
 
         </div><!-- /vt-digilocker -->
+
+        <!-- ════ Mobile OTP Tab ════ -->
+        <div id="vt-phone" style="display:none">
+          <div class="notice-box" style="margin-bottom:16px">
+            A <strong>6-digit OTP</strong> will be sent to your Indian mobile number via SMS.
+            Your number is only used for verification — never stored in plaintext.
+          </div>
+
+          <!-- Phone input row -->
+          <div id="phoneInputRow">
+            <div class="otp-row">
+              <div class="form-group" style="flex:1">
+                <label for="phoneNumber">Mobile Number <span class="req">*</span></label>
+                <div style="display:flex;align-items:center;gap:0">
+                  <span style="padding:9px 12px;background:var(--gray-50);border:1px solid var(--border);border-right:none;border-radius:3px 0 0 3px;font-size:13px;color:var(--gray-600);white-space:nowrap">🇮🇳 +91</span>
+                  <input type="tel" id="phoneNumber" placeholder="10-digit mobile number"
+                    maxlength="10" inputmode="numeric" pattern="[6-9][0-9]{9}"
+                    style="border-radius:0 3px 3px 0;flex:1" />
+                </div>
+                <span class="f-hint">Enter your 10-digit Indian mobile number (starts with 6-9)</span>
+              </div>
+              <button class="btn btn-primary" id="sendPhoneOtpBtn" onclick="sendPhoneOTP()" style="margin-bottom:18px;white-space:nowrap">
+                Send OTP
+              </button>
+            </div>
+          </div>
+
+          <!-- OTP entry (hidden until sent) -->
+          <div id="phoneOtpEntryRow" style="display:none; margin-top:14px;">
+            <div style="background:#f7f9fc;border:1px solid #c3d4e8;border-radius:3px;padding:14px 16px;margin-bottom:14px;">
+              <p style="font-size:12px;color:var(--gov-blue);font-weight:600;margin-bottom:2px;">OTP sent to your mobile</p>
+              <p style="font-size:11px;color:var(--gray-400);">Check your SMS inbox. Valid for 5 minutes.</p>
+            </div>
+            <div class="form-group" style="margin-bottom:12px;">
+              <label>Enter 6-digit OTP <span class="req">*</span></label>
+              <div class="otp-digits">
+                <input type="text" class="phone-otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="p0" />
+                <input type="text" class="phone-otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="p1" />
+                <input type="text" class="phone-otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="p2" />
+                <input type="text" class="phone-otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="p3" />
+                <input type="text" class="phone-otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="p4" />
+                <input type="text" class="phone-otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="p5" />
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+              <button class="btn btn-success" id="verifyPhoneOtpBtn" onclick="verifyPhoneOTP()">Verify OTP</button>
+              <button class="btn btn-secondary" id="phoneResendBtn" onclick="resendPhoneOTP()" disabled>
+                Resend OTP (<span id="phoneResendTimer">60</span>s)
+              </button>
+              <button class="btn btn-secondary" onclick="resetPhoneOtpFlow()" style="margin-left:auto;font-size:11px">Change Number</button>
+            </div>
+          </div>
+        </div><!-- /vt-phone -->
 
         <!-- ════ Email OTP Tab ════ -->
         <div id="vt-email" style="display:none">

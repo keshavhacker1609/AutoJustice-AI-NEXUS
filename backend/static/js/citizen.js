@@ -31,23 +31,196 @@ let _dlPopupTimer = null;            // Timer for DigiLocker popup poll
 
 // ── Verification Tab Switcher ────────────────────────────────────────────────
 
-function switchVerifyTab(tab) {
-  const dlTab  = document.getElementById('tab-digilocker');
-  const emlTab = document.getElementById('tab-email');
-  const dlPanel  = document.getElementById('vt-digilocker');
-  const emlPanel = document.getElementById('vt-email');
+let phoneResendCountdownTimer = null;
+let verifiedPhone = null;
 
-  if (tab === 'digilocker') {
-    dlTab.classList.add('active');
-    emlTab.classList.remove('active');
-    if (dlPanel)  dlPanel.style.display  = '';
-    if (emlPanel) emlPanel.style.display = 'none';
-  } else {
-    emlTab.classList.add('active');
-    dlTab.classList.remove('active');
-    if (emlPanel) emlPanel.style.display = '';
-    if (dlPanel)  dlPanel.style.display  = 'none';
+function switchVerifyTab(tab) {
+  // Hide all panels and deactivate all tabs
+  ['digilocker', 'phone', 'email'].forEach(t => {
+    const tabEl   = document.getElementById(`tab-${t}`);
+    const panelEl = document.getElementById(`vt-${t}`);
+    if (tabEl)   tabEl.classList.remove('active');
+    if (panelEl) panelEl.style.display = 'none';
+  });
+  // Show selected
+  const active = document.getElementById(`tab-${tab}`);
+  const panel  = document.getElementById(`vt-${tab}`);
+  if (active) active.classList.add('active');
+  if (panel)  panel.style.display = '';
+}
+
+// ── Mobile Phone OTP Verification ────────────────────────────────────────────
+
+async function sendPhoneOTP() {
+  const phoneInput = document.getElementById('phoneNumber');
+  const phone = phoneInput ? phoneInput.value.trim().replace(/\D/g, '') : '';
+
+  if (!phone || !/^[6-9]\d{9}$/.test(phone)) {
+    if (phoneInput) phoneInput.style.borderColor = 'var(--red)';
+    showToast('Enter a valid 10-digit Indian mobile number (starts with 6-9).', 'err');
+    if (phoneInput) phoneInput.focus();
+    return;
   }
+  if (phoneInput) phoneInput.style.borderColor = '';
+
+  const btn = document.getElementById('sendPhoneOtpBtn');
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+
+  try {
+    const res = await fetch('/api/auth/send-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Failed to send OTP');
+
+    document.getElementById('phoneOtpEntryRow').style.display = 'block';
+    if (phoneInput) phoneInput.readOnly = true;
+    btn.style.display = 'none';
+
+    document.getElementById('p0').focus();
+    showToast('OTP sent to your mobile!', 'ok');
+    _startPhoneResendCountdown(60);
+
+    // DEV mode: if SMS disabled, OTP is in server logs — show hint
+    if (data.dev_note) {
+      showToast('⚠ SMS not configured — check server terminal for OTP', 'err');
+    }
+
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = 'Send OTP';
+    showToast(err.message, 'err');
+  }
+}
+
+async function verifyPhoneOTP() {
+  const digits = ['p0','p1','p2','p3','p4','p5'].map(id => {
+    const el = document.getElementById(id);
+    return el ? el.value.trim() : '';
+  });
+  const otp = digits.join('');
+
+  if (otp.length !== 6 || !/^\d{6}$/.test(otp)) {
+    showToast('Please enter the complete 6-digit OTP.', 'err');
+    document.getElementById('p0').focus();
+    return;
+  }
+
+  const phone = document.getElementById('phoneNumber').value.trim().replace(/\D/g, '');
+  const btn = document.getElementById('verifyPhoneOtpBtn');
+  btn.disabled = true;
+  btn.textContent = 'Verifying…';
+
+  try {
+    const res = await fetch('/api/auth/verify-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, otp }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Verification failed');
+
+    otpSessionToken = data.session_token;
+    verifiedPhone   = phone;
+
+    // Hide verify section
+    const vs = document.getElementById('verify-section');
+    if (vs) vs.style.display = 'none';
+
+    if (phoneResendCountdownTimer) clearInterval(phoneResendCountdownTimer);
+
+    // Show verified banner
+    const banner = document.getElementById('verifiedBanner');
+    if (banner) banner.classList.add('show');
+    const bannerTitle = document.getElementById('verifiedBannerTitle');
+    if (bannerTitle) bannerTitle.textContent = 'Mobile Number Verified';
+    const ve = document.getElementById('verifiedEmail');
+    if (ve) ve.textContent = '+91 ' + phone + ' — Verified via SMS OTP';
+
+    // Reveal form and pre-fill phone
+    document.getElementById('formSection').style.display = 'block';
+    const phoneField = document.getElementById('complainant_phone');
+    if (phoneField) {
+      phoneField.value    = phone;
+      phoneField.readOnly = true;
+      phoneField.style.background = 'var(--gray-50)';
+      phoneField.title = 'Phone verified via OTP';
+    }
+
+    showToast('✓ Mobile number verified!', 'ok');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = 'Verify OTP';
+    showToast(err.message, 'err');
+    document.querySelectorAll('.phone-otp-digit').forEach(el => {
+      el.style.borderColor = 'var(--red)';
+      setTimeout(() => { el.style.borderColor = ''; }, 1500);
+    });
+  }
+}
+
+async function resendPhoneOTP() {
+  const btn = document.getElementById('phoneResendBtn');
+  if (btn.disabled) return;
+  const phone = document.getElementById('phoneNumber').value.trim().replace(/\D/g, '');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/auth/send-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Failed to resend');
+    ['p0','p1','p2','p3','p4','p5'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+    document.getElementById('p0').focus();
+    showToast('New OTP sent to your mobile!', 'ok');
+    _startPhoneResendCountdown(60);
+  } catch (err) {
+    showToast(err.message, 'err');
+    btn.disabled = false;
+  }
+}
+
+function resetPhoneOtpFlow() {
+  const phoneInput = document.getElementById('phoneNumber');
+  if (phoneInput) { phoneInput.readOnly = false; phoneInput.value = ''; phoneInput.focus(); }
+  document.getElementById('phoneOtpEntryRow').style.display = 'none';
+  const sendBtn = document.getElementById('sendPhoneOtpBtn');
+  if (sendBtn) { sendBtn.style.display = ''; sendBtn.disabled = false; sendBtn.textContent = 'Send OTP'; }
+  const verifyBtn = document.getElementById('verifyPhoneOtpBtn');
+  if (verifyBtn) { verifyBtn.disabled = false; verifyBtn.textContent = 'Verify OTP'; }
+  ['p0','p1','p2','p3','p4','p5'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  if (phoneResendCountdownTimer) clearInterval(phoneResendCountdownTimer);
+  const rb = document.getElementById('phoneResendBtn');
+  if (rb) rb.disabled = true;
+  const rt = document.getElementById('phoneResendTimer');
+  if (rt) rt.textContent = '60';
+}
+
+function _startPhoneResendCountdown(seconds) {
+  if (phoneResendCountdownTimer) clearInterval(phoneResendCountdownTimer);
+  let remaining = seconds;
+  const timerEl = document.getElementById('phoneResendTimer');
+  const resendBtn = document.getElementById('phoneResendBtn');
+  if (resendBtn) resendBtn.disabled = true;
+  if (timerEl) timerEl.textContent = remaining;
+  phoneResendCountdownTimer = setInterval(() => {
+    remaining -= 1;
+    if (timerEl) timerEl.textContent = remaining;
+    if (remaining <= 0) {
+      clearInterval(phoneResendCountdownTimer);
+      phoneResendCountdownTimer = null;
+      if (resendBtn) resendBtn.disabled = false;
+    }
+  }, 1000);
 }
 
 // ── DigiLocker Aadhaar Verification ──────────────────────────────────────────
@@ -683,6 +856,11 @@ function buildReview() {
           <span><strong>Gender:</strong> ${escapeHtml(genderMap[digilockerProfile.gender] || digilockerProfile.gender || '—')}</span>
         </div>
       </div>`;
+  } else if (otpSessionToken && verifiedPhone) {
+    idVerifyBadge = `
+      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:5px;padding:10px 14px;margin-bottom:12px;font-size:12px;">
+        <span style="font-weight:700;color:#14532d;">✓ Mobile Verified via SMS OTP — +91 ${escapeHtml(verifiedPhone)}</span>
+      </div>`;
   } else if (otpSessionToken) {
     idVerifyBadge = `
       <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:5px;padding:10px 14px;margin-bottom:12px;font-size:12px;">
@@ -881,14 +1059,39 @@ function escapeHtml(str) {
 
 document.addEventListener('DOMContentLoaded', () => {
   _setupOtpDigits();
+  _setupPhoneOtpDigits();
   _setupCharCounter();
   setupDropzone();
   setupFormSubmit();
   loadLiveStats();
   setInterval(loadLiveStats, 30000);
 
-  // Default: DigiLocker tab is active (already set in HTML)
-  // If JS loads and DigiLocker tab exists, ensure it's shown
+  // Default: DigiLocker tab active
   const dlTab = document.getElementById('vt-digilocker');
   if (dlTab) dlTab.style.display = '';
 });
+
+function _setupPhoneOtpDigits() {
+  const digits = document.querySelectorAll('.phone-otp-digit');
+  digits.forEach((input, idx) => {
+    input.addEventListener('input', (e) => {
+      const val = e.target.value.replace(/\D/g, '');
+      e.target.value = val.slice(-1);
+      if (val && idx < digits.length - 1) digits[idx + 1].focus();
+      if (idx === digits.length - 1 && val) verifyPhoneOTP();
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Backspace' && !e.target.value && idx > 0) digits[idx - 1].focus();
+      if (e.key === 'ArrowLeft'  && idx > 0) digits[idx - 1].focus();
+      if (e.key === 'ArrowRight' && idx < digits.length - 1) digits[idx + 1].focus();
+    });
+    input.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const pasted = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '');
+      pasted.split('').slice(0, 6).forEach((ch, i) => { if (digits[i]) digits[i].value = ch; });
+      const next = Math.min(pasted.length, digits.length - 1);
+      digits[next].focus();
+      if (pasted.length >= 6) verifyPhoneOTP();
+    });
+  });
+}
