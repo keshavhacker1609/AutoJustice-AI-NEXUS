@@ -66,7 +66,7 @@ async function openDigiLockerPopup() {
 
   try {
     // Fetch the auth URL from backend
-    const res = await fetch('/api/digilocker/auth');
+    const res = await fetch('/api/digilocker/auth-url');
     if (!res.ok) throw new Error('Could not generate DigiLocker authorization URL');
     const data = await res.json();
 
@@ -98,22 +98,25 @@ function _listenForDigiLockerCallback(popup) {
     // Only accept messages from our own origin
     if (event.origin !== window.location.origin) return;
     const msg = event.data;
-    if (!msg || msg.type !== 'DIGILOCKER_VERIFIED') return;
+
+    // Handle both success and error message types from DigiLocker callback
+    if (!msg || (msg.type !== 'DIGILOCKER_VERIFIED' && msg.type !== 'DIGILOCKER_ERROR')) return;
 
     // Clean up
     window.removeEventListener('message', messageHandler);
     if (_dlPopupTimer) { clearInterval(_dlPopupTimer); _dlPopupTimer = null; }
     if (popup && !popup.closed) popup.close();
 
-    if (msg.error) {
+    if (msg.type === 'DIGILOCKER_ERROR') {
       _resetDlBtn();
-      showToast('DigiLocker verification failed: ' + (msg.error || 'Unknown error'), 'err');
+      showToast('DigiLocker verification failed: ' + (msg.message || 'Unknown error'), 'err');
       return;
     }
 
-    // ── Success ──
-    digilockerSessionToken = msg.session_token;
-    digilockerProfile      = msg.profile || {};
+    // ── Success — session_token is inside profile object ──
+    const profile = msg.profile || {};
+    digilockerSessionToken = profile.session_token || '';
+    digilockerProfile      = profile;
     _onDigiLockerVerified(digilockerProfile);
   }
 
