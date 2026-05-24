@@ -7,39 +7,120 @@ services:
     name: autojustice-ai-nexus
     runtime: docker           # Use our Dockerfile (installs Tesseract + poppler)
     plan: free                # Free tier — sleeps after 15 min inactivity, wakes in ~30s
-    region: singapore         # singapore | oregon | ohio | frankfurt
+    region: singapore         # Closest to India
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
 
     envVars:
+      # ── Core ──────────────────────────────────────────────────────────────────
+      - key: APP_NAME
+        value: AutoJustice AI NEXUS
+      - key: APP_VERSION
+        value: "2.0.0"
+      - key: DEBUG
+        value: "false"
       - key: SECRET_KEY
         generateValue: true          # Render auto-generates a secure random secret
+
+      # ── JWT ───────────────────────────────────────────────────────────────────
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "480"
+
+      # ── Admin (SET MANUALLY in Render dashboard) ──────────────────────────────
+      - key: DEFAULT_ADMIN_USERNAME
+        value: admin
+      - key: DEFAULT_ADMIN_PASSWORD
+        sync: false                  # SET THIS MANUALLY — never use default in prod
+
+      # ── AI / Gemini ───────────────────────────────────────────────────────────
       - key: GEMINI_API_KEY
         sync: false                  # SET THIS MANUALLY in Render dashboard
       - key: GEMINI_MODEL
-        value: gemini-1.5-pro
+        value: gemini-2.0-flash
+
+      # ── Database ──────────────────────────────────────────────────────────────
       - key: DATABASE_URL
         fromDatabase:
           name: autojustice-db
           property: connectionString
+
+      # ── File Storage ──────────────────────────────────────────────────────────
       - key: UPLOAD_DIR
-        value: /tmp/uploads          # NOTE: ephemeral on Render free tier
+        value: /tmp/uploads          # Ephemeral on Render free tier
       - key: FIR_OUTPUT_DIR
-        value: /tmp/firs             # NOTE: ephemeral on Render free tier
-      - key: ALLOWED_ORIGINS
-        value: https://autojustice-ai-nexus.onrender.com
+        value: /tmp/firs             # Ephemeral on Render free tier
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "25"
+
+      # ── Tesseract ─────────────────────────────────────────────────────────────
+      - key: TESSERACT_PATH
+        value: tesseract             # Installed via apt in Dockerfile
+
+      # ── Risk Engine ───────────────────────────────────────────────────────────
+      - key: HIGH_RISK_THRESHOLD
+        value: "0.70"
+      - key: MEDIUM_RISK_THRESHOLD
+        value: "0.40"
+      - key: FAKE_REPORT_THRESHOLD
+        value: "0.45"
+      - key: ELA_QUALITY
+        value: "90"
+      - key: ELA_TAMPER_THRESHOLD
+        value: "0.55"
+
+      # ── Rate Limiting ─────────────────────────────────────────────────────────
       - key: RATE_LIMIT_ENABLED
         value: "true"
+      - key: RATE_LIMIT_SUBMISSIONS_PER_HOUR
+        value: "5"
+
+      # ── SMTP Email ────────────────────────────────────────────────────────────
+      - key: SMTP_ENABLED
+        value: "true"
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        sync: false                  # SET MANUALLY: your Gmail address
+      - key: SMTP_PASSWORD
+        sync: false                  # SET MANUALLY: your Gmail App Password
+      - key: SMTP_FROM_EMAIL
+        sync: false                  # SET MANUALLY: same as SMTP_USERNAME
+
+      # ── SMS OTP (2Factor.in) ──────────────────────────────────────────────────
+      - key: SMS_ENABLED
+        value: "true"
+      - key: SMS_PROVIDER
+        value: 2factor
+      - key: TWOFACTOR_API_KEY
+        sync: false                  # SET MANUALLY: your 2Factor.in API key
+      - key: FAST2SMS_API_KEY
+        sync: false                  # Optional fallback
+
+      # ── DigiLocker OAuth 2.0 ─────────────────────────────────────────────────
+      - key: DIGILOCKER_CLIENT_ID
+        sync: false                  # SET MANUALLY after MeitY approval
+      - key: DIGILOCKER_CLIENT_SECRET
+        sync: false                  # SET MANUALLY after MeitY approval
+      - key: DIGILOCKER_REDIRECT_URI
+        value: https://autojustice-ai-nexus.onrender.com/api/digilocker/callback
+      - key: DIGILOCKER_USE_SANDBOX
+        value: "true"                # Switch to false after MeitY production approval
+
+      # ── Police Station Identity ───────────────────────────────────────────────
       - key: STATION_NAME
         value: Cyber Crime Police Station
-      - key: DEFAULT_ADMIN_USERNAME
-        value: admin
-      - key: DEFAULT_ADMIN_PASSWORD
-        sync: false                  # SET THIS MANUALLY — do NOT use default in prod
-      - key: JWT_ACCESS_TOKEN_EXPIRE_MINUTES
-        value: "480"
-      - key: DEBUG
-        value: "false"
+      - key: STATION_ADDRESS
+        value: Commissioner Office, Cyber Cell, Mumbai - 400001
+      - key: STATION_CODE
+        value: MH-CC-001
+      - key: STATION_STATE
+        value: Maharashtra
+      - key: STATION_DISTRICT
+        value: Mumbai City
 
 databases:
   - name: autojustice-db

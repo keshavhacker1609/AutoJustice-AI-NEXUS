@@ -15,7 +15,7 @@ email-validator==2.2.0
 
 # ─── Database (SQLite prototype → PostgreSQL production) ─────────────────────
 sqlalchemy==2.0.32
-# psycopg2-binary==2.9.9   # PostgreSQL — required on Render (not needed for local SQLite dev)
+psycopg2-binary==2.9.9   # PostgreSQL — required on Render
 
 # ─── AI & OCR ─────────────────────────────────────────────────────────────────
 google-genai>=1.0.0
