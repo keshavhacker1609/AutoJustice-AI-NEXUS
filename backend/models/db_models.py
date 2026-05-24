@@ -66,8 +66,13 @@ class Report(Base):
     forensics_summary = Column(Text, nullable=True)
 
     # ─── DigiLocker Identity Verification ────────────────────────────
-    digilocker_verified = Column(Boolean, default=False, nullable=False)
-    digilocker_name     = Column(String(255), nullable=True)  # Aadhaar-verified name
+    digilocker_verified     = Column(Boolean, default=False, nullable=False)
+    digilocker_name         = Column(String(255), nullable=True)   # Aadhaar-verified name
+    digilocker_dob          = Column(String(20), nullable=True)    # DOB from DigiLocker
+    digilocker_gender       = Column(String(10), nullable=True)    # Gender from DigiLocker
+    digilocker_aadhaar_suffix = Column(String(10), nullable=True)  # Last 4 digits
+    digilocker_method       = Column(String(50), nullable=True)    # OAuth2 / Demo
+    citizen_verification_id = Column(String(36), ForeignKey("citizen_verifications.id"), nullable=True)
 
     # ─── Reporter Trust ───────────────────────────────────────────────
     reporter_trust_score = Column(Float, nullable=True)       # 0=untrusted, 1=trusted
@@ -108,6 +113,7 @@ class Report(Base):
     case_notes = relationship("CaseNote", back_populates="report", cascade="all, delete-orphan")
     reporter_profile = relationship("ReporterProfile", back_populates="reports")
     assigned_officer_user = relationship("OfficerUser", back_populates="assigned_reports")
+    citizen_verification  = relationship("CitizenVerification", back_populates="reports", foreign_keys=[citizen_verification_id])
 
     __table_args__ = (
         Index("ix_reports_created_risk", "created_at", "risk_level"),
@@ -239,3 +245,47 @@ class ReporterProfile(Base):
     block_reason = Column(Text, nullable=True)
 
     reports = relationship("Report", back_populates="reporter_profile")
+    verifications = relationship("CitizenVerification", back_populates="reporter_profile")
+
+
+# ─── DigiLocker Citizen Verification ─────────────────────────────────────────
+
+class CitizenVerification(Base):
+    """
+    Persistent record of every DigiLocker identity verification.
+    Linked to Reports and ReporterProfiles for full audit trail.
+    Sessions survive server restarts (DB-backed, not in-memory).
+    """
+    __tablename__ = "citizen_verifications"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+
+    # ─── Session Token ────────────────────────────────────────────────
+    session_token = Column(String(128), unique=True, nullable=False, index=True)
+
+    # ─── Aadhaar-verified Identity ────────────────────────────────────
+    verified_name    = Column(String(255), nullable=False)
+    dob              = Column(String(20), nullable=True)   # DD/MM/YYYY from DigiLocker
+    gender           = Column(String(10), nullable=True)   # M / F / T
+    aadhaar_suffix   = Column(String(10), nullable=True)   # Last 4 digits only
+    aadhaar_masked   = Column(String(20), nullable=True)   # XXXX-XXXX-XXXX-1234
+    digilocker_id    = Column(String(100), nullable=True)  # DigiLocker unique user ID
+
+    # ─── Verification Metadata ────────────────────────────────────────
+    verification_method = Column(String(50), nullable=False)  # DigiLocker-OAuth2-PKCE / Demo
+    is_demo          = Column(Boolean, default=False, nullable=False)
+    is_used          = Column(Boolean, default=False, nullable=False)  # True after report submitted
+    is_expired       = Column(Boolean, default=False, nullable=False)
+
+    # ─── Request Metadata (for fraud detection) ───────────────────────
+    ip_address       = Column(String(45), nullable=True)
+    user_agent       = Column(String(500), nullable=True)
+
+    # ─── Linkage ──────────────────────────────────────────────────────
+    reporter_profile_id = Column(String(36), ForeignKey("reporter_profiles.id"), nullable=True)
+
+    # ─── Relationships ────────────────────────────────────────────────
+    reporter_profile = relationship("ReporterProfile", back_populates="verifications")
+    reports = relationship("Report", back_populates="citizen_verification")

@@ -22,9 +22,175 @@ let _setLang = null;
 let currentStep = 1;
 let selectedFiles = [];
 let submittedReportId = null;
-let otpSessionToken = null;   // Set after successful OTP verification
+let otpSessionToken = null;          // Set after successful OTP verification
+let digilockerSessionToken = null;   // Set after DigiLocker Aadhaar verification
+let digilockerProfile = null;        // Full profile from DigiLocker
 let verifiedEmail = null;
 let resendCountdownTimer = null;
+let _dlPopupTimer = null;            // Timer for DigiLocker popup poll
+
+// ── Verification Tab Switcher ────────────────────────────────────────────────
+
+function switchVerifyTab(tab) {
+  const dlTab  = document.getElementById('tab-digilocker');
+  const emlTab = document.getElementById('tab-email');
+  const dlPanel  = document.getElementById('vt-digilocker');
+  const emlPanel = document.getElementById('vt-email');
+
+  if (tab === 'digilocker') {
+    dlTab.classList.add('active');
+    emlTab.classList.remove('active');
+    if (dlPanel)  dlPanel.style.display  = '';
+    if (emlPanel) emlPanel.style.display = 'none';
+  } else {
+    emlTab.classList.add('active');
+    dlTab.classList.remove('active');
+    if (emlPanel) emlPanel.style.display = '';
+    if (dlPanel)  dlPanel.style.display  = 'none';
+  }
+}
+
+// ── DigiLocker Aadhaar Verification ──────────────────────────────────────────
+
+async function openDigiLockerPopup() {
+  const btn = document.getElementById('dlVerifyBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `
+      <div class="dl-logo-box">🔐</div>
+      <div class="dl-btn-text">
+        <strong>Opening DigiLocker…</strong>
+        <span>Please allow the popup and complete Aadhaar login</span>
+      </div>`;
+  }
+
+  try {
+    // Fetch the auth URL from backend
+    const res = await fetch('/api/digilocker/auth');
+    if (!res.ok) throw new Error('Could not generate DigiLocker authorization URL');
+    const data = await res.json();
+
+    // Open popup window (DigiLocker login page or demo callback)
+    const popupWidth  = 520;
+    const popupHeight = 680;
+    const left = Math.round((window.screen.width  - popupWidth)  / 2);
+    const top  = Math.round((window.screen.height - popupHeight) / 2);
+    const features = `width=${popupWidth},height=${popupHeight},left=${left},top=${top},scrollbars=yes,resizable=yes`;
+
+    const popup = window.open(data.auth_url, 'digilocker_auth', features);
+
+    if (!popup || popup.closed) {
+      throw new Error('Popup was blocked by your browser. Please allow popups for this site and try again.');
+    }
+
+    // Listen for postMessage from the callback page
+    _listenForDigiLockerCallback(popup);
+
+  } catch (err) {
+    _resetDlBtn();
+    showToast(err.message || 'Could not open DigiLocker. Please use Email OTP instead.', 'err');
+  }
+}
+
+function _listenForDigiLockerCallback(popup) {
+  // Handler for postMessage from callback page
+  function messageHandler(event) {
+    // Only accept messages from our own origin
+    if (event.origin !== window.location.origin) return;
+    const msg = event.data;
+    if (!msg || msg.type !== 'DIGILOCKER_VERIFIED') return;
+
+    // Clean up
+    window.removeEventListener('message', messageHandler);
+    if (_dlPopupTimer) { clearInterval(_dlPopupTimer); _dlPopupTimer = null; }
+    if (popup && !popup.closed) popup.close();
+
+    if (msg.error) {
+      _resetDlBtn();
+      showToast('DigiLocker verification failed: ' + (msg.error || 'Unknown error'), 'err');
+      return;
+    }
+
+    // ── Success ──
+    digilockerSessionToken = msg.session_token;
+    digilockerProfile      = msg.profile || {};
+    _onDigiLockerVerified(digilockerProfile);
+  }
+
+  window.addEventListener('message', messageHandler);
+
+  // Fallback: poll for popup close (user closed without completing)
+  _dlPopupTimer = setInterval(() => {
+    if (popup && popup.closed) {
+      clearInterval(_dlPopupTimer);
+      _dlPopupTimer = null;
+      window.removeEventListener('message', messageHandler);
+      if (!digilockerSessionToken) {
+        _resetDlBtn();
+        // Don't show error — user may have just closed intentionally
+      }
+    }
+  }, 600);
+}
+
+function _onDigiLockerVerified(profile) {
+  // Hide unverified panel, show verified card
+  const unverifiedPanel = document.getElementById('dlUnverifiedPanel');
+  const verifiedCard    = document.getElementById('dlVerifiedCard');
+  if (unverifiedPanel) unverifiedPanel.style.display = 'none';
+  if (verifiedCard)    verifiedCard.classList.add('show');
+
+  // Fill identity details
+  _setText('dlVerifiedName',    profile.name    || 'Verified Citizen');
+  _setText('dlVerifiedAadhaar', profile.aadhaar_masked || '—');
+  _setText('dlVerifiedDob',     profile.dob     || '—');
+  const genderMap = { M: 'Male', F: 'Female', T: 'Transgender' };
+  _setText('dlVerifiedGender',  genderMap[profile.gender] || profile.gender || '—');
+
+  showToast('✓ Aadhaar identity verified via DigiLocker!', 'ok');
+}
+
+function proceedAfterDigiLocker() {
+  // Hide verify section
+  const vs = document.getElementById('verify-section');
+  if (vs) vs.style.display = 'none';
+
+  // Show verified banner with DigiLocker info
+  const banner = document.getElementById('verifiedBanner');
+  if (banner) banner.classList.add('show');
+  const bannerTitle = document.getElementById('verifiedBannerTitle');
+  if (bannerTitle) bannerTitle.textContent = 'DigiLocker (Aadhaar) Verified';
+  const ve = document.getElementById('verifiedEmail');
+  if (ve) ve.textContent = (digilockerProfile.name || 'Verified Citizen') + ' — Aadhaar Verified';
+
+  // Reveal form
+  document.getElementById('formSection').style.display = 'block';
+
+  // Pre-fill name from Aadhaar profile (read-only — legally verified)
+  const nameField = document.getElementById('complainant_name');
+  if (nameField && digilockerProfile.name) {
+    nameField.value    = digilockerProfile.name;
+    nameField.readOnly = true;
+    nameField.title    = 'Name verified via DigiLocker Aadhaar — cannot be edited';
+    nameField.style.background = 'var(--gray-50)';
+  }
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function _resetDlBtn() {
+  const btn = document.getElementById('dlVerifyBtn');
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = `
+      <div class="dl-logo-box">🔐</div>
+      <div class="dl-btn-text">
+        <strong>Verify with DigiLocker</strong>
+        <span>Opens the official DigiLocker login in a secure popup window</span>
+      </div>
+      <div class="dl-arrow">&#8250;</div>`;
+  }
+}
 
 // ── Email OTP Verification ──────────────────────────────────────────────────
 
@@ -103,17 +269,20 @@ async function verifyOTP() {
     otpSessionToken = data.session_token;
     verifiedEmail   = email;
 
-    // Hide OTP section
-    document.getElementById('otp-section').style.display = 'none';
+    // Hide verification section
+    const vs = document.getElementById('verify-section');
+    if (vs) vs.style.display = 'none';
 
     // Stop countdown
     if (resendCountdownTimer) clearInterval(resendCountdownTimer);
 
-    // Show verified banner
+    // Show verified banner with email info
     const banner = document.getElementById('verifiedBanner');
-    banner.classList.add('show');
+    if (banner) banner.classList.add('show');
+    const bannerTitle = document.getElementById('verifiedBannerTitle');
+    if (bannerTitle) bannerTitle.textContent = 'Email Verified';
     const ve = document.getElementById('verifiedEmail');
-    if (ve) ve.textContent = email + ' — Verified';
+    if (ve) ve.textContent = email + ' — Verified via OTP';
 
     // Reveal form
     document.getElementById('formSection').style.display = 'block';
@@ -497,7 +666,29 @@ function buildReview() {
     </tr>
   `).join('');
 
+  // Build identity verification badge
+  let idVerifyBadge = '';
+  if (digilockerSessionToken && digilockerProfile) {
+    const genderMap = { M: 'Male', F: 'Female', T: 'Transgender' };
+    idVerifyBadge = `
+      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:5px;padding:10px 14px;margin-bottom:12px;font-size:12px;">
+        <div style="font-weight:700;color:#14532d;margin-bottom:6px;">✓ Identity Verified via DigiLocker (Aadhaar)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;color:#166534">
+          <span><strong>Name:</strong> ${escapeHtml(digilockerProfile.name || '—')}</span>
+          <span><strong>Aadhaar:</strong> ${escapeHtml(digilockerProfile.aadhaar_masked || '—')}</span>
+          <span><strong>DOB:</strong> ${escapeHtml(digilockerProfile.dob || '—')}</span>
+          <span><strong>Gender:</strong> ${escapeHtml(genderMap[digilockerProfile.gender] || digilockerProfile.gender || '—')}</span>
+        </div>
+      </div>`;
+  } else if (otpSessionToken) {
+    idVerifyBadge = `
+      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:5px;padding:10px 14px;margin-bottom:12px;font-size:12px;">
+        <span style="font-weight:700;color:#14532d;">✓ Email Verified via OTP — ${escapeHtml(verifiedEmail || '—')}</span>
+      </div>`;
+  }
+
   document.getElementById('reviewContent').innerHTML = `
+    ${idVerifyBadge}
     <table class="review-table" style="margin-bottom:14px">${rows}</table>
     <div style="margin-bottom:12px">
       <div style="font-size:11px;color:var(--gray-400);font-weight:600;text-transform:uppercase;margin-bottom:6px">Incident Description</div>
@@ -526,8 +717,10 @@ function setupFormSubmit() {
 
     const formData = new FormData();
 
-    // Attach OTP session token if verified
-    if (otpSessionToken) {
+    // Attach identity verification token (DigiLocker takes priority over Email OTP)
+    if (digilockerSessionToken) {
+      formData.append('digilocker_session_token', digilockerSessionToken);
+    } else if (otpSessionToken) {
       formData.append('otp_session_token', otpSessionToken);
     }
 
@@ -691,7 +884,8 @@ document.addEventListener('DOMContentLoaded', () => {
   loadLiveStats();
   setInterval(loadLiveStats, 30000);
 
-  // Focus email input on load
-  const emailInput = document.getElementById('otpEmail');
-  if (emailInput) emailInput.focus();
+  // Default: DigiLocker tab is active (already set in HTML)
+  // If JS loads and DigiLocker tab exists, ensure it's shown
+  const dlTab = document.getElementById('vt-digilocker');
+  if (dlTab) dlTab.style.display = '';
 });

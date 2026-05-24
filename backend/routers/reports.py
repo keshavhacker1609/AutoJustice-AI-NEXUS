@@ -91,6 +91,7 @@ async def submit_report(
     # ── 0. Identity verification check (OTP email or DigiLocker) ─────────
     digilocker_verified = False
     digilocker_name_verified = None
+    digilocker_profile = None       # Full DigiLocker profile dict (DB-backed)
 
     # Check OTP session token first
     if otp_session_token:
@@ -105,7 +106,7 @@ async def submit_report(
         except Exception as e:
             logger.warning(f"OTP session verify error: {e}")
 
-    # Fallback: DigiLocker session token
+    # Fallback: DigiLocker session token (DB-backed)
     elif digilocker_session_token:
         try:
             from services.digilocker_service import DigiLockerService
@@ -115,10 +116,10 @@ async def submit_report(
                 client_secret=getattr(_s, "digilocker_client_secret", ""),
                 redirect_uri=getattr(_s, "digilocker_redirect_uri", ""),
             )
-            profile = _dl.verify_session(digilocker_session_token)
-            if profile:
+            digilocker_profile = _dl.verify_session(digilocker_session_token, db)
+            if digilocker_profile:
                 digilocker_verified = True
-                digilocker_name_verified = profile.get("name")
+                digilocker_name_verified = digilocker_profile.get("name")
                 logger.info(f"DigiLocker verified: {digilocker_name_verified} IP={client_ip}")
         except Exception as e:
             logger.warning(f"DigiLocker session verify error: {e}")
@@ -166,6 +167,12 @@ async def submit_report(
         reporter_trust_score=trust_score,
         digilocker_verified=digilocker_verified,
         digilocker_name=digilocker_name_verified,
+        # Extended DigiLocker fields (populated only when DigiLocker was used)
+        digilocker_dob=(digilocker_profile.get("dob") if digilocker_profile else None),
+        digilocker_gender=(digilocker_profile.get("gender") if digilocker_profile else None),
+        digilocker_aadhaar_suffix=(digilocker_profile.get("aadhaar_suffix") if digilocker_profile else None),
+        digilocker_method=(digilocker_profile.get("verification_method") if digilocker_profile else None),
+        citizen_verification_id=(str(digilocker_profile["id"]) if digilocker_profile and digilocker_profile.get("id") else None),
     )
     db.add(report)
     db.flush()
@@ -513,6 +520,20 @@ async def submit_report(
 
     db.commit()
     db.refresh(report)
+
+    # ── 11b. Mark DigiLocker session as used (prevents session reuse) ────
+    if digilocker_session_token and digilocker_profile:
+        try:
+            from services.digilocker_service import DigiLockerService
+            from config import settings as _s
+            _dl2 = DigiLockerService(
+                client_id=getattr(_s, "digilocker_client_id", ""),
+                client_secret=getattr(_s, "digilocker_client_secret", ""),
+                redirect_uri=getattr(_s, "digilocker_redirect_uri", ""),
+            )
+            _dl2.mark_session_used(digilocker_session_token, db)
+        except Exception as e:
+            logger.warning(f"DigiLocker mark_used failed: {e}")  # Non-fatal
 
     # ── 12. Follow-up acknowledgement email (Phase 2) ─────────────────
     if complainant_email:

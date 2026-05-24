@@ -3,16 +3,16 @@ AutoJustice AI NEXUS — DigiLocker OAuth 2.0 Identity Verification Service
 Integrates with India's official DigiLocker API (MeitY) for citizen authentication.
 
 Real OAuth 2.0 flow with PKCE (Proof Key for Code Exchange).
+Sessions persisted to PostgreSQL/SQLite — survive server restarts.
 Fetches Aadhaar-verified name, DOB, gender from DigiLocker user profile.
 
 To use real DigiLocker:
   Register at: https://partners.digitallocker.gov.in/
   Add DIGILOCKER_CLIENT_ID and DIGILOCKER_CLIENT_SECRET to .env
 
-Demo mode (no credentials): returns mock verified profile for hackathon demo.
+Demo mode (no credentials): returns mock verified profile.
 """
 import hashlib
-import hmac
 import logging
 import secrets
 import base64
@@ -20,50 +20,43 @@ from datetime import datetime, timedelta
 from typing import Optional
 from urllib.parse import urlencode
 
+from sqlalchemy.orm import Session
+
 logger = logging.getLogger(__name__)
 
-# ─── DigiLocker API Endpoints (Production) ────────────────────────────────────
+# ─── DigiLocker API Endpoints ─────────────────────────────────────────────────
 DIGILOCKER_AUTH_URL   = "https://api.digitallocker.gov.in/public/oauth2/1/authorize"
 DIGILOCKER_TOKEN_URL  = "https://api.digitallocker.gov.in/public/oauth2/1/token"
 DIGILOCKER_USER_URL   = "https://api.digitallocker.gov.in/public/oauth2/1/user"
 
-# Sandbox endpoints (use for testing before production approval)
 DIGILOCKER_SANDBOX_AUTH  = "https://digilocker.meripehchaan.gov.in/public/oauth2/1/authorize"
 DIGILOCKER_SANDBOX_TOKEN = "https://digilocker.meripehchaan.gov.in/public/oauth2/1/token"
 DIGILOCKER_SANDBOX_USER  = "https://digilocker.meripehchaan.gov.in/public/oauth2/1/user"
 
+STATE_TTL_SECONDS   = 600    # 10 min to complete OAuth flow
+SESSION_TTL_HOURS   = 2      # 2 hour session after verification
 
-# ─── In-memory state store (Redis in production) ──────────────────────────────
-# Maps state_token → {code_verifier, created_at}
+# In-memory state store ONLY for OAuth PKCE state (short-lived, doesn't need DB)
 _STATE_STORE: dict = {}
-# Maps session_token → verified profile
-_SESSION_STORE: dict = {}
-
-STATE_TTL_SECONDS    = 600   # 10 min to complete OAuth flow
-SESSION_TTL_SECONDS  = 3600  # 1 hour session after verification
 
 
 class DigiLockerService:
     """
     Full DigiLocker OAuth 2.0 + PKCE identity verification service.
+    All verified sessions are persisted to the database.
 
     Flow:
-      1. get_auth_url()     → redirect user to DigiLocker login
-      2. handle_callback()  → exchange code → get access token → fetch profile
-      3. verify_session()   → validate session token from subsequent requests
+      1. get_auth_url()          → redirect user to DigiLocker login
+      2. handle_callback(db)     → exchange code → get access token → fetch profile → save to DB
+      3. verify_session(db)      → validate session token from DB
     """
 
-    def __init__(
-        self,
-        client_id: str,
-        client_secret: str,
-        redirect_uri: str,
-        use_sandbox: bool = False,
-    ):
+    def __init__(self, client_id: str, client_secret: str,
+                 redirect_uri: str, use_sandbox: bool = False):
         self.client_id     = client_id
         self.client_secret = client_secret
         self.redirect_uri  = redirect_uri
-        self.demo_mode     = not client_id or client_id == "DEMO"
+        self.demo_mode     = not client_id or client_id in ("", "DEMO", "your_digilocker_client_id_here")
 
         if use_sandbox and not self.demo_mode:
             self._auth_url  = DIGILOCKER_SANDBOX_AUTH
@@ -75,10 +68,7 @@ class DigiLockerService:
             self._user_url  = DIGILOCKER_USER_URL
 
         if self.demo_mode:
-            logger.info(
-                "DigiLocker running in DEMO mode. "
-                "Set DIGILOCKER_CLIENT_ID in .env for real verification."
-            )
+            logger.info("DigiLocker running in DEMO mode. Set DIGILOCKER_CLIENT_ID in .env for real verification.")
 
     # ── Step 1: Generate Authorization URL ────────────────────────────────────
 
@@ -90,7 +80,6 @@ class DigiLockerService:
         state = secrets.token_urlsafe(32)
 
         if self.demo_mode:
-            # Return a demo URL — no real redirect needed
             _STATE_STORE[state] = {
                 "code_verifier": "demo",
                 "created_at": datetime.utcnow().isoformat(),
@@ -102,14 +91,12 @@ class DigiLockerService:
                 "demo_mode": True,
             }
 
-        # PKCE: generate code_verifier and code_challenge
+        # PKCE: code_verifier + code_challenge
         code_verifier  = secrets.token_urlsafe(64)
         code_challenge = (
             base64.urlsafe_b64encode(
                 hashlib.sha256(code_verifier.encode("ascii")).digest()
-            )
-            .rstrip(b"=")
-            .decode("ascii")
+            ).rstrip(b"=").decode("ascii")
         )
 
         _STATE_STORE[state] = {
@@ -126,20 +113,20 @@ class DigiLockerService:
             "code_challenge":        code_challenge,
             "code_challenge_method": "S256",
         }
-
         return {
             "auth_url":  self._auth_url + "?" + urlencode(params),
             "state":     state,
             "demo_mode": False,
         }
 
-    # ── Step 2: Handle Callback ───────────────────────────────────────────────
+    # ── Step 2: Handle Callback (Real OAuth) ──────────────────────────────────
 
-    async def handle_callback(self, code: str, state: str) -> dict:
+    async def handle_callback(self, code: str, state: str,
+                               db: Session, ip_address: str = "",
+                               user_agent: str = "") -> dict:
         """
-        Exchange authorization code for access token, fetch user profile.
-        Returns verified user profile dict.
-        Raises ValueError on any failure.
+        Exchange authorization code for access token, fetch user profile, persist to DB.
+        Returns verified user profile dict with session_token.
         """
         # Validate state
         state_data = _STATE_STORE.pop(state, None)
@@ -172,7 +159,6 @@ class DigiLockerService:
                 )
                 token_resp.raise_for_status()
                 token_data = token_resp.json()
-
         except httpx.HTTPStatusError as e:
             logger.error(f"DigiLocker token exchange failed: {e.response.text}")
             raise ValueError(f"DigiLocker authentication failed: {e.response.status_code}")
@@ -193,22 +179,26 @@ class DigiLockerService:
                 )
                 user_resp.raise_for_status()
                 user_data = user_resp.json()
-
         except Exception as e:
             logger.error(f"DigiLocker user profile fetch error: {e}")
             raise ValueError("Could not retrieve your DigiLocker profile.")
 
-        profile = self._normalize_profile(user_data, access_token)
-        session_token = self._create_session(profile)
+        profile = self._normalize_profile(user_data)
+        session_token = self._persist_verification(
+            db=db, profile=profile, is_demo=False,
+            ip_address=ip_address, user_agent=user_agent
+        )
         profile["session_token"] = session_token
         return profile
 
-    # ── Demo Callback (for hackathon demo without real credentials) ───────────
+    # ── Demo Callback ─────────────────────────────────────────────────────────
 
-    def handle_demo_callback(self, state: str, name: str = "", aadhaar_suffix: str = "") -> dict:
+    def handle_demo_callback(self, state: str, db: Session,
+                              name: str = "", ip_address: str = "",
+                              user_agent: str = "") -> dict:
         """
-        Demo-mode callback: returns a mock verified profile.
-        Simulates what DigiLocker would return for real credentials.
+        Demo-mode callback: returns a mock verified profile, persisted to DB.
+        Simulates what DigiLocker returns for real credentials.
         """
         state_data = _STATE_STORE.pop(state, None)
         if not state_data or not state_data.get("demo"):
@@ -218,111 +208,150 @@ class DigiLockerService:
         if (datetime.utcnow() - created).total_seconds() > STATE_TTL_SECONDS:
             raise ValueError("Demo session expired.")
 
-        # Generate a realistic mock profile
-        mock_aadhaar = f"XXXX-XXXX-{secrets.randbelow(9000) + 1000}"
+        mock_suffix = str(secrets.randbelow(9000) + 1000)
+        mock_aadhaar = f"XXXX-XXXX-XXXX-{mock_suffix}"
         profile = {
-            "name":           name or "Demo Citizen",
-            "dob":            "01/01/1995",
-            "gender":         "M",
-            "aadhaar_suffix": aadhaar_suffix or mock_aadhaar[-4:],
-            "digilocker_id":  f"DL{secrets.token_hex(6).upper()}",
-            "verified":       True,
-            "verification_time": datetime.utcnow().isoformat(),
+            "name":                name or "Demo Citizen",
+            "dob":                 "01/01/1995",
+            "gender":              "M",
+            "aadhaar_suffix":      mock_suffix,
+            "aadhaar_masked":      mock_aadhaar,
+            "digilocker_id":       f"DL{secrets.token_hex(6).upper()}",
+            "verified":            True,
+            "verification_time":   datetime.utcnow().isoformat(),
             "verification_method": "DigiLocker-Demo",
-            "aadhaar_masked": mock_aadhaar,
         }
-
-        session_token = self._create_session(profile)
+        session_token = self._persist_verification(
+            db=db, profile=profile, is_demo=True,
+            ip_address=ip_address, user_agent=user_agent
+        )
         profile["session_token"] = session_token
         return profile
 
-    # ── Session Management ────────────────────────────────────────────────────
+    # ── DB Persistence ────────────────────────────────────────────────────────
 
-    def _create_session(self, profile: dict) -> str:
-        """Create a secure session token for the verified profile."""
+    def _persist_verification(self, db: Session, profile: dict,
+                               is_demo: bool, ip_address: str = "",
+                               user_agent: str = "") -> str:
+        """
+        Save verification record to the database.
+        Returns the session_token for use in subsequent requests.
+        """
+        from models.db_models import CitizenVerification, ReporterProfile
+
         session_token = secrets.token_urlsafe(48)
-        _SESSION_STORE[session_token] = {
-            "profile":    profile,
-            "created_at": datetime.utcnow().isoformat(),
-        }
-        # Clean up expired sessions
-        self._cleanup_sessions()
+        expires_at    = datetime.utcnow() + timedelta(hours=SESSION_TTL_HOURS)
+
+        # Try to link to existing ReporterProfile by Aadhaar suffix
+        # (best-effort — no personal data stored beyond last 4 digits)
+        reporter_profile_id = None
+        aadhaar_suffix = profile.get("aadhaar_suffix", "")
+        if aadhaar_suffix:
+            existing = db.query(ReporterProfile).filter(
+                ReporterProfile.phone == f"AADHAAR_{aadhaar_suffix}"
+            ).first()
+            if existing:
+                reporter_profile_id = existing.id
+
+        verification = CitizenVerification(
+            session_token       = session_token,
+            verified_name       = profile.get("name", "Verified Citizen"),
+            dob                 = profile.get("dob", ""),
+            gender              = profile.get("gender", ""),
+            aadhaar_suffix      = aadhaar_suffix,
+            aadhaar_masked      = profile.get("aadhaar_masked", f"XXXX-XXXX-XXXX-{aadhaar_suffix}"),
+            digilocker_id       = profile.get("digilocker_id", ""),
+            verification_method = profile.get("verification_method", "DigiLocker"),
+            is_demo             = is_demo,
+            is_used             = False,
+            is_expired          = False,
+            ip_address          = ip_address,
+            user_agent          = user_agent[:500] if user_agent else "",
+            expires_at          = expires_at,
+            reporter_profile_id = reporter_profile_id,
+        )
+        db.add(verification)
+        db.commit()
+        db.refresh(verification)
+
+        logger.info(
+            f"DigiLocker verification saved | id={verification.id} "
+            f"| demo={is_demo} | name={profile.get('name')} | ip={ip_address}"
+        )
         return session_token
 
-    def verify_session(self, session_token: str) -> Optional[dict]:
+    # ── Session Verification ──────────────────────────────────────────────────
+
+    def verify_session(self, session_token: str, db: Session) -> Optional[dict]:
         """
-        Validate a session token.
+        Validate a session token against the database.
         Returns the verified profile dict, or None if invalid/expired.
         """
-        session = _SESSION_STORE.get(session_token)
-        if not session:
+        from models.db_models import CitizenVerification
+
+        verification = db.query(CitizenVerification).filter(
+            CitizenVerification.session_token == session_token
+        ).first()
+
+        if not verification:
             return None
 
-        created = datetime.fromisoformat(session["created_at"])
-        if (datetime.utcnow() - created).total_seconds() > SESSION_TTL_SECONDS:
-            _SESSION_STORE.pop(session_token, None)
+        # Check expiry
+        if datetime.utcnow() > verification.expires_at:
+            verification.is_expired = True
+            db.commit()
+            logger.info(f"DigiLocker session expired: {session_token[:16]}...")
             return None
 
-        return session["profile"]
+        if verification.is_expired:
+            return None
 
-    def _cleanup_sessions(self):
-        """Remove expired sessions to prevent memory leak."""
-        cutoff = datetime.utcnow() - timedelta(seconds=SESSION_TTL_SECONDS)
-        expired = [
-            k for k, v in _SESSION_STORE.items()
-            if datetime.fromisoformat(v["created_at"]) < cutoff
-        ]
-        for k in expired:
-            _SESSION_STORE.pop(k, None)
+        return {
+            "id":                  verification.id,
+            "name":                verification.verified_name,
+            "dob":                 verification.dob,
+            "gender":              verification.gender,
+            "aadhaar_suffix":      verification.aadhaar_suffix,
+            "aadhaar_masked":      verification.aadhaar_masked,
+            "digilocker_id":       verification.digilocker_id,
+            "verification_method": verification.verification_method,
+            "verification_time":   verification.created_at.isoformat(),
+            "is_demo":             verification.is_demo,
+            "verified":            True,
+            "session_token":       session_token,
+        }
 
-        # Also cleanup state store
-        cutoff_state = datetime.utcnow() - timedelta(seconds=STATE_TTL_SECONDS)
-        expired_states = [
-            k for k, v in _STATE_STORE.items()
-            if datetime.fromisoformat(v["created_at"]) < cutoff_state
-        ]
-        for k in expired_states:
-            _STATE_STORE.pop(k, None)
+    def mark_session_used(self, session_token: str, db: Session) -> bool:
+        """Mark a verification session as used (after report is submitted)."""
+        from models.db_models import CitizenVerification
+
+        verification = db.query(CitizenVerification).filter(
+            CitizenVerification.session_token == session_token
+        ).first()
+
+        if not verification:
+            return False
+
+        verification.is_used = True
+        db.commit()
+        return True
 
     # ── Profile Normalization ─────────────────────────────────────────────────
 
     @staticmethod
-    def _normalize_profile(raw: dict, access_token: str) -> dict:
-        """
-        Normalize DigiLocker API response into our standard profile format.
-        DigiLocker returns different field names depending on API version.
-        """
-        # Handle both v1 and v2 response formats
+    def _normalize_profile(raw: dict) -> dict:
+        """Normalize DigiLocker API response into our standard profile format."""
         name = (
-            raw.get("name") or
-            raw.get("fullName") or
-            raw.get("full_name") or
+            raw.get("name") or raw.get("fullName") or raw.get("full_name") or
             f"{raw.get('firstName', '')} {raw.get('lastName', '')}".strip() or
             "Verified Citizen"
         )
-
-        dob = (
-            raw.get("dob") or
-            raw.get("dateOfBirth") or
-            raw.get("date_of_birth") or
-            ""
-        )
-
-        gender = (
-            raw.get("gender") or
-            raw.get("sex") or
-            ""
-        )
-
+        dob = raw.get("dob") or raw.get("dateOfBirth") or raw.get("date_of_birth") or ""
+        gender = raw.get("gender") or raw.get("sex") or ""
         digilocker_id = (
-            raw.get("digilockerid") or
-            raw.get("digiLocker_id") or
-            raw.get("sub") or
-            raw.get("user_id") or
-            ""
+            raw.get("digilockerid") or raw.get("digiLocker_id") or
+            raw.get("sub") or raw.get("user_id") or ""
         )
-
-        # Aadhaar is never fully exposed — only last 4 digits
         aadhaar_suffix = str(raw.get("aadhaarSuffix", raw.get("aadhaar_suffix", ""))).strip()
 
         return {
@@ -330,6 +359,7 @@ class DigiLockerService:
             "dob":                 dob,
             "gender":              gender,
             "aadhaar_suffix":      aadhaar_suffix,
+            "aadhaar_masked":      f"XXXX-XXXX-XXXX-{aadhaar_suffix}" if aadhaar_suffix else "",
             "digilocker_id":       digilocker_id,
             "verified":            True,
             "verification_time":   datetime.utcnow().isoformat(),

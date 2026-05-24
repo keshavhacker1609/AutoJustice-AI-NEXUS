@@ -160,8 +160,66 @@
       .stat-cell:nth-child(2) { border-right: none; }
     }
 
-    /* ── OTP Section ── */
-    #otp-section { margin-bottom: 24px; }
+    /* ── Verify Section (DigiLocker + OTP tabs) ── */
+    #verify-section { margin-bottom: 24px; }
+
+    /* Verification Method Tabs */
+    .verify-tabs {
+      display: flex; gap: 0; border-bottom: 2px solid var(--border);
+      margin-bottom: 20px;
+    }
+    .vtab {
+      padding: 10px 20px; border: none; background: none;
+      font-size: 13px; font-weight: 600; color: var(--gray-400);
+      cursor: pointer; border-bottom: 3px solid transparent;
+      margin-bottom: -2px; font-family: inherit; transition: all .15s;
+      display: flex; align-items: center; gap: 7px;
+    }
+    .vtab:hover { color: var(--gov-blue); background: var(--gray-50); }
+    .vtab.active { color: var(--gov-blue); border-bottom-color: var(--gov-blue); }
+    .vtab .vtab-badge {
+      font-size: 9px; background: var(--saffron); color: #fff;
+      padding: 2px 6px; border-radius: 10px; font-weight: 700;
+      letter-spacing: .3px;
+    }
+
+    /* DigiLocker Verify Button */
+    .dl-verify-btn {
+      display: flex; align-items: center; gap: 12px;
+      background: #fff; border: 2px solid #e2e8f0; border-radius: 6px;
+      padding: 14px 18px; cursor: pointer; transition: all .18s;
+      font-family: inherit; width: 100%; margin-bottom: 14px;
+      text-align: left;
+    }
+    .dl-verify-btn:hover { border-color: #f37926; box-shadow: 0 2px 8px rgba(243,121,38,.15); }
+    .dl-verify-btn:disabled { opacity: .6; cursor: not-allowed; }
+    .dl-logo-box {
+      width: 48px; height: 48px; border-radius: 8px;
+      background: linear-gradient(135deg, #f37926 0%, #e06921 100%);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; font-size: 22px; color: #fff;
+    }
+    .dl-btn-text strong { font-size: 14px; font-weight: 700; color: var(--gray-900); display: block; }
+    .dl-btn-text span   { font-size: 11px; color: var(--gray-400); margin-top: 2px; display: block; }
+    .dl-arrow { margin-left: auto; font-size: 18px; color: var(--gray-400); flex-shrink: 0; }
+
+    /* DigiLocker Verified State */
+    .dl-verified-card {
+      background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 6px;
+      padding: 16px; display: none; margin-bottom: 14px;
+    }
+    .dl-verified-card.show { display: block; }
+    .dl-verified-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .dl-tick { width: 32px; height: 32px; border-radius: 50%; background: var(--success); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; flex-shrink: 0; }
+    .dl-verified-header strong { font-size: 14px; color: #14532d; }
+    .dl-verified-header span   { font-size: 11px; color: #166534; display: block; }
+    .dl-id-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .dl-id-cell { background: #dcfce7; border-radius: 4px; padding: 8px 10px; }
+    .dl-id-label { font-size: 9px; color: #166534; text-transform: uppercase; letter-spacing: .4px; font-weight: 700; }
+    .dl-id-value { font-size: 13px; color: #14532d; font-weight: 600; margin-top: 2px; }
+
+    /* OTP Section */
+    #otp-section { margin-bottom: 0; }
 
     .section-card {
       background: #fff;
@@ -494,69 +552,148 @@
     </div>
   </div>
 
-  <!-- Verified Banner (shown after OTP) -->
+  <!-- Verified Banner (shown after any verification) -->
   <div class="verified-banner" id="verifiedBanner">
     <div class="vb-tick">&#10003;</div>
     <div class="vb-text">
-      <strong data-i18n="email_verified">Email Verified</strong>
+      <strong id="verifiedBannerTitle">Identity Verified</strong>
       <span id="verifiedEmail">—</span>
     </div>
   </div>
 
-  <!-- ── STEP 0: Email Verification ── -->
-  <div id="otp-section">
+  <!-- ── STEP 1: Identity Verification (DigiLocker OR Email OTP) ── -->
+  <div id="verify-section">
     <div class="section-card">
       <div class="section-card-head">
         <div class="step-num">1</div>
-        <span data-i18n="section_email_verify">Email Verification — Verify your identity before filing</span>
+        <span>Identity Verification — Verify your identity before filing</span>
       </div>
       <div class="section-card-body">
-        <div class="notice-box" data-i18n="email_verify_notice">
-          You must verify your email address before submitting a complaint. A 6-digit One-Time Password (OTP) will be sent to your email. This ensures your complaint is traceable and legally actionable.
+
+        <!-- ── Method Tabs ── -->
+        <div class="verify-tabs">
+          <button class="vtab active" id="tab-digilocker" onclick="switchVerifyTab('digilocker')">
+            🔒 DigiLocker / Aadhaar
+            <span class="vtab-badge">RECOMMENDED</span>
+          </button>
+          <button class="vtab" id="tab-email" onclick="switchVerifyTab('email')">
+            ✉ Email OTP
+          </button>
         </div>
 
-        <!-- Email input row -->
-        <div id="otpEmailRow">
-          <div class="otp-row">
-            <div class="form-group">
-              <label for="otpEmail"><span data-i18n="email_label">Email Address</span> <span class="req">*</span></label>
-              <input type="email" id="otpEmail" data-i18n-placeholder="email_placeholder" placeholder="Enter your email address" autocomplete="email" />
-              <span class="f-hint" data-i18n="otp_email_hint">A verification code will be sent to this address</span>
-            </div>
-            <button class="btn btn-primary" id="sendOtpBtn" onclick="sendOTP()" style="margin-bottom:18px" data-i18n="send_otp_btn">
-              Send OTP
-            </button>
-          </div>
-        </div>
+        <!-- ════ DigiLocker Tab ════ -->
+        <div id="vt-digilocker">
 
-        <!-- OTP entry (hidden until sent) -->
-        <div id="otpEntryRow" style="display:none; margin-top:14px;">
-          <div style="background:#f7f9fc;border:1px solid #c3d4e8;border-radius:3px;padding:14px 16px;margin-bottom:14px;">
-            <p style="font-size:12px;color:var(--gov-blue);font-weight:600;margin-bottom:2px;" data-i18n="otp_sent_title">OTP sent to your email</p>
-            <p style="font-size:11px;color:var(--gray-400);" data-i18n="otp_sent_sub">Check your inbox and spam folder. Valid for 5 minutes.</p>
-          </div>
-          <div class="form-group" style="margin-bottom:12px;">
-            <label><span data-i18n="enter_otp_label">Enter 6-digit OTP</span> <span class="req">*</span></label>
-            <div class="otp-digits">
-              <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="d0" />
-              <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="d1" />
-              <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="d2" />
-              <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="d3" />
-              <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="d4" />
-              <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="d5" />
+          <!-- Unverified state -->
+          <div id="dlUnverifiedPanel">
+            <div class="notice-box" style="margin-bottom:16px">
+              <strong>Aadhaar-backed identity verification</strong> — Your name, date of birth and gender
+              will be fetched directly from your DigiLocker account linked to Aadhaar. This provides
+              the strongest legal backing for your complaint.
+            </div>
+
+            <button class="dl-verify-btn" id="dlVerifyBtn" onclick="openDigiLockerPopup()">
+              <div class="dl-logo-box">🔐</div>
+              <div class="dl-btn-text">
+                <strong>Verify with DigiLocker</strong>
+                <span>Opens the official DigiLocker login in a secure popup window</span>
+              </div>
+              <div class="dl-arrow">&#8250;</div>
+            </button>
+
+            <div style="background:#fffbeb;border-left:3px solid var(--saffron);padding:9px 13px;border-radius:0 3px 3px 0;font-size:11px;color:#78350f;line-height:1.6">
+              &#9888;&nbsp; A popup window will open — please allow popups for this site.
+              After logging in with your mobile number and Aadhaar OTP on DigiLocker,
+              you will be automatically redirected back here.
             </div>
           </div>
-          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-            <button class="btn btn-success" id="verifyOtpBtn" onclick="verifyOTP()" data-i18n="verify_otp_btn">Verify OTP</button>
-            <button class="btn btn-secondary" id="resendBtn" onclick="resendOTP()" disabled>
-              <span data-i18n="resend_otp_btn">Resend OTP</span> (<span id="resendTimer">60</span>s)
-            </button>
-            <button class="btn btn-secondary" onclick="resetOtpFlow()" style="margin-left:auto;font-size:11px" data-i18n="change_email_btn">Change Email</button>
+
+          <!-- Verified state -->
+          <div class="dl-verified-card" id="dlVerifiedCard">
+            <div class="dl-verified-header">
+              <div class="dl-tick">&#10003;</div>
+              <div>
+                <strong>Aadhaar Identity Verified via DigiLocker</strong>
+                <span>Your identity has been authenticated and saved securely</span>
+              </div>
+            </div>
+            <div class="dl-id-grid">
+              <div class="dl-id-cell">
+                <div class="dl-id-label">Verified Name</div>
+                <div class="dl-id-value" id="dlVerifiedName">—</div>
+              </div>
+              <div class="dl-id-cell">
+                <div class="dl-id-label">Aadhaar (Masked)</div>
+                <div class="dl-id-value" id="dlVerifiedAadhaar">—</div>
+              </div>
+              <div class="dl-id-cell">
+                <div class="dl-id-label">Date of Birth</div>
+                <div class="dl-id-value" id="dlVerifiedDob">—</div>
+              </div>
+              <div class="dl-id-cell">
+                <div class="dl-id-label">Gender</div>
+                <div class="dl-id-value" id="dlVerifiedGender">—</div>
+              </div>
+            </div>
+            <div style="margin-top:12px">
+              <button class="btn btn-success btn-full" onclick="proceedAfterDigiLocker()" id="dlProceedBtn">
+                &#10003;&nbsp; Continue to File Complaint →
+              </button>
+            </div>
           </div>
-        </div>
-      </div>
+
+        </div><!-- /vt-digilocker -->
+
+        <!-- ════ Email OTP Tab ════ -->
+        <div id="vt-email" style="display:none">
+          <div id="otp-section">
+            <div class="notice-box" style="margin-bottom:16px">
+              You must verify your email address before submitting a complaint. A 6-digit One-Time Password (OTP) will be sent to your email.
+            </div>
+
+            <!-- Email input row -->
+            <div id="otpEmailRow">
+              <div class="otp-row">
+                <div class="form-group">
+                  <label for="otpEmail">Email Address <span class="req">*</span></label>
+                  <input type="email" id="otpEmail" placeholder="Enter your email address" autocomplete="email" />
+                  <span class="f-hint">A verification code will be sent to this address</span>
+                </div>
+                <button class="btn btn-primary" id="sendOtpBtn" onclick="sendOTP()" style="margin-bottom:18px">Send OTP</button>
+              </div>
+            </div>
+
+            <!-- OTP entry (hidden until sent) -->
+            <div id="otpEntryRow" style="display:none; margin-top:14px;">
+              <div style="background:#f7f9fc;border:1px solid #c3d4e8;border-radius:3px;padding:14px 16px;margin-bottom:14px;">
+                <p style="font-size:12px;color:var(--gov-blue);font-weight:600;margin-bottom:2px;">OTP sent to your email</p>
+                <p style="font-size:11px;color:var(--gray-400);">Check your inbox and spam folder. Valid for 5 minutes.</p>
+              </div>
+              <div class="form-group" style="margin-bottom:12px;">
+                <label>Enter 6-digit OTP <span class="req">*</span></label>
+                <div class="otp-digits">
+                  <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="d0" />
+                  <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="d1" />
+                  <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="d2" />
+                  <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="d3" />
+                  <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="d4" />
+                  <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="d5" />
+                </div>
+              </div>
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <button class="btn btn-success" id="verifyOtpBtn" onclick="verifyOTP()">Verify OTP</button>
+                <button class="btn btn-secondary" id="resendBtn" onclick="resendOTP()" disabled>
+                  Resend OTP (<span id="resendTimer">60</span>s)
+                </button>
+                <button class="btn btn-secondary" onclick="resetOtpFlow()" style="margin-left:auto;font-size:11px">Change Email</button>
+              </div>
+            </div>
+          </div>
+        </div><!-- /vt-email -->
+
+      </div><!-- /section-card-body -->
     </div>
-  </div>
+  </div><!-- /verify-section -->
 
   <!-- ── FORM (hidden until email verified) ── -->
   <div id="formSection" style="display:none;">

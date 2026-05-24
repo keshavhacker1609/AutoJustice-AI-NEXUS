@@ -41,22 +41,29 @@ async def lifespan(app: FastAPI):
     logger.info("  Initializing database schema...")
     Base.metadata.create_all(bind=engine)
 
-    # ── Phase 2 lightweight migration: add jurisdiction columns to existing DBs ──
+    # ── Lightweight migrations: add new columns to existing DBs ──────────────────
     from sqlalchemy import inspect, text
     _insp = inspect(engine)
     if _insp.has_table("reports"):
         _existing = {c["name"] for c in _insp.get_columns("reports")}
         _new_cols = {
-            "detected_state":          "VARCHAR(64)",
-            "detected_district":       "VARCHAR(64)",
-            "detected_jurisdiction":   "VARCHAR(128)",
-            "jurisdiction_confidence": "FLOAT",
-            "is_forwarded":            "BOOLEAN DEFAULT 0",
-            "forwarded_to_station":    "VARCHAR(128)",
-            "forwarded_to_state":      "VARCHAR(64)",
-            "forwarded_at":            "DATETIME",
-            "forwarded_by":            "VARCHAR(64)",
-            "forwarding_reason":       "TEXT",
+            # Phase 2 — jurisdiction
+            "detected_state":            "VARCHAR(64)",
+            "detected_district":         "VARCHAR(64)",
+            "detected_jurisdiction":     "VARCHAR(128)",
+            "jurisdiction_confidence":   "FLOAT",
+            "is_forwarded":              "BOOLEAN DEFAULT 0",
+            "forwarded_to_station":      "VARCHAR(128)",
+            "forwarded_to_state":        "VARCHAR(64)",
+            "forwarded_at":              "DATETIME",
+            "forwarded_by":              "VARCHAR(64)",
+            "forwarding_reason":         "TEXT",
+            # Phase 3 — DigiLocker identity verification
+            "digilocker_dob":            "VARCHAR(20)",
+            "digilocker_gender":         "VARCHAR(10)",
+            "digilocker_aadhaar_suffix": "VARCHAR(10)",
+            "digilocker_method":         "VARCHAR(50)",
+            "citizen_verification_id":   "VARCHAR(36)",
         }
         with engine.begin() as conn:
             for col, ddl in _new_cols.items():
