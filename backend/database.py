@@ -22,10 +22,15 @@ from config import settings
 # Auto-detect engine kwargs based on database dialect.
 # SQLite requires check_same_thread=False for FastAPI's async thread pool.
 # PostgreSQL / MySQL do not need (and reject) this argument.
-_is_sqlite = settings.database_url.startswith("sqlite")
+# Render provides "postgres://" URLs — SQLAlchemy requires "postgresql://"
+_db_url = settings.database_url
+if _db_url.startswith("postgres://"):
+    _db_url = _db_url.replace("postgres://", "postgresql://", 1)
+
+_is_sqlite = _db_url.startswith("sqlite")
 
 engine = create_engine(
-    settings.database_url,
+    _db_url,
     connect_args={"check_same_thread": False} if _is_sqlite else {},
     # PostgreSQL connection pool settings (ignored by SQLite)
     pool_pre_ping=True,          # detect stale connections automatically
