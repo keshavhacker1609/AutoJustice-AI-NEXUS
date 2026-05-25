@@ -423,6 +423,7 @@ function renderComplaintTable(cases, targetId) {
 // ── Case Detail Modal ─────────────────────────────────────────────────────────
 
 async function openCase(reportId) {
+  currentModalReportId = reportId;
   const modal = document.getElementById('caseModal');
   const body  = document.getElementById('modalBody');
 
@@ -432,6 +433,8 @@ async function openCase(reportId) {
   try {
     const res  = await fetch(`/api/reports/${reportId}`, { headers: authHeaders() });
     const data = await res.json();
+
+    currentModalStatus = data.status;
 
     document.getElementById('modalTitle').textContent = `Case: ${data.case_number}`;
     document.getElementById('modalCaseNumber').textContent =
@@ -631,8 +634,10 @@ async function openCase(reportId) {
           : `<button class="btn btn-primary" onclick="generateComplaintReport('${data.id}', this)">Generate Complaint Report</button>`
         }
         <button class="btn" style="background:var(--blue-light);color:var(--blue)" onclick="showAIExplain('${data.id}','${data.case_number}')">AI Explain</button>
-        <button class="btn btn-outline" onclick="assignCase('${data.id}')">Assign Officer</button>
-        <button class="btn btn-outline" onclick="addNote('${data.id}')">Add Note</button>
+        <button class="btn btn-outline" style="background:#1565c0;color:#fff;border:none" onclick="updateCaseStatus(currentModalReportId, currentModalStatus)">&#9998; Update Status</button>
+        <button class="btn btn-outline" style="background:#047857;color:#fff;border:none" onclick="addCaseNote(currentModalReportId)">&#128221; Notes</button>
+        <button class="btn btn-outline" style="background:#92400e;color:#fff;border:none" onclick="assignCase(currentModalReportId)">&#128110; Assign</button>
+        <button class="btn btn-outline" style="background:#7c3aed;color:#fff;border:none" onclick="togglePriority(currentModalReportId)">&#128308; Priority</button>
         <button class="btn btn-danger" onclick="flagFake('${data.id}', this)">Flag as Fake</button>
         <button class="btn btn-outline" onclick="closeModal()">Close</button>
       </div>
@@ -1043,4 +1048,188 @@ async function showAIExplain(reportId, caseNumber) {
   } catch (err) {
     body.innerHTML = `<div class="loading-text" style="color:var(--red)">Failed to load AI explanation: ${err.message}</div>`;
   }
+}
+
+// ── Case Management Actions ───────────────────────────────────────────────────
+
+let currentModalReportId = null;
+let currentModalStatus = null;
+
+async function updateCaseStatus(reportId, currentStatus) {
+  const statuses = ['PENDING','INVESTIGATING','COMPLAINT_REGISTERED','RESOLVED','CLOSED'];
+  const sel = statuses.map(s =>
+    `<option value="${s}" ${s === currentStatus ? 'selected' : ''}>${s.replace('_',' ')}</option>`
+  ).join('');
+
+  const html = `
+    <div style="padding:20px;min-width:320px">
+      <h3 style="margin-bottom:14px;font-size:15px">Update Case Status</h3>
+      <select id="statusSel" style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:12px;font-size:13px">${sel}</select>
+      <textarea id="statusNote" placeholder="Add a note (optional)..." rows="3"
+        style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;resize:none;margin-bottom:12px"></textarea>
+      <div style="display:flex;gap:8px">
+        <button onclick="submitStatusUpdate('${reportId}')" class="btn-action primary" style="flex:1;padding:9px;border:none;border-radius:6px;background:var(--blue);color:#fff;cursor:pointer;font-weight:600">Update Status</button>
+        <button onclick="closeActionPanel()" style="padding:9px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;cursor:pointer">Cancel</button>
+      </div>
+    </div>`;
+  showActionPanel(html);
+}
+
+async function submitStatusUpdate(reportId) {
+  const status = document.getElementById('statusSel').value;
+  const note   = document.getElementById('statusNote').value.trim();
+  const fd = new FormData();
+  fd.append('status', status);
+  if (note) fd.append('note', note);
+  const res = await fetch(`/api/reports/${reportId}/status`, { method:'PATCH', headers:{'Authorization':'Bearer '+localStorage.getItem('aj_token')}, body:fd });
+  if (res.ok) {
+    closeActionPanel();
+    showDashToast('✓ Status updated to ' + status.replace('_',' '), 'ok');
+    setTimeout(() => openCase(reportId), 400);
+    loadAllCases();
+  } else {
+    const err = await res.json();
+    showDashToast(err.detail || 'Update failed', 'err');
+  }
+}
+
+async function assignCase(reportId) {
+  // Load officers list first
+  const res = await fetch('/api/reports/officers/list', { headers: authHeaders() });
+  const officers = await res.json();
+  if (!officers.length) { showDashToast('No officers found', 'err'); return; }
+
+  const opts = officers.map(o =>
+    `<option value="${o.id}">${o.rank ? o.rank+' ' : ''}${o.name} (@${o.username})</option>`
+  ).join('');
+
+  const html = `
+    <div style="padding:20px;min-width:320px">
+      <h3 style="margin-bottom:14px;font-size:15px">Assign Case to Officer</h3>
+      <select id="officerSel" style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:12px;font-size:13px">${opts}</select>
+      <div style="display:flex;gap:8px">
+        <button onclick="submitAssign('${reportId}')" class="btn-action primary" style="flex:1;padding:9px;border:none;border-radius:6px;background:var(--blue);color:#fff;cursor:pointer;font-weight:600">Assign</button>
+        <button onclick="closeActionPanel()" style="padding:9px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;cursor:pointer">Cancel</button>
+      </div>
+    </div>`;
+  showActionPanel(html);
+}
+
+async function submitAssign(reportId) {
+  const officerId = document.getElementById('officerSel').value;
+  const fd = new FormData();
+  fd.append('officer_id', officerId);
+  const res = await fetch(`/api/reports/${reportId}/assign`, { method:'PATCH', headers:{'Authorization':'Bearer '+localStorage.getItem('aj_token')}, body:fd });
+  if (res.ok) {
+    const data = await res.json();
+    closeActionPanel();
+    showDashToast(`✓ Case assigned to ${data.assigned_to}`, 'ok');
+    setTimeout(() => openCase(reportId), 400);
+    loadAllCases();
+  } else {
+    showDashToast('Assignment failed', 'err');
+  }
+}
+
+async function addCaseNote(reportId) {
+  // Load existing notes
+  const res = await fetch(`/api/reports/${reportId}/notes`, { headers: authHeaders() });
+  const notes = await res.json();
+
+  const notesList = notes.length
+    ? notes.map(n => `
+        <div style="padding:10px;background:#f8fafc;border-radius:6px;margin-bottom:8px;border-left:3px solid var(--blue)">
+          <div style="font-size:11px;color:var(--gray-400);margin-bottom:4px">${n.officer} · ${new Date(n.created_at).toLocaleString('en-IN')}</div>
+          <div style="font-size:13px;color:var(--gray-900)">${escapeHtml(n.note_text)}</div>
+        </div>`).join('')
+    : '<div style="color:var(--gray-400);font-size:13px;margin-bottom:12px">No notes yet.</div>';
+
+  const html = `
+    <div style="padding:20px;min-width:380px;max-height:80vh;overflow-y:auto">
+      <h3 style="margin-bottom:14px;font-size:15px">Officer Notes</h3>
+      <div style="margin-bottom:16px">${notesList}</div>
+      <textarea id="noteText" placeholder="Add an investigation note..." rows="3"
+        style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;resize:none;margin-bottom:10px"></textarea>
+      <div style="display:flex;gap:8px">
+        <button onclick="submitNote('${reportId}')" class="btn-action primary" style="flex:1;padding:9px;border:none;border-radius:6px;background:var(--blue);color:#fff;cursor:pointer;font-weight:600">Add Note</button>
+        <button onclick="closeActionPanel()" style="padding:9px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;cursor:pointer">Close</button>
+      </div>
+    </div>`;
+  showActionPanel(html);
+}
+
+async function submitNote(reportId) {
+  const text = document.getElementById('noteText').value.trim();
+  if (!text) { showDashToast('Please enter a note', 'err'); return; }
+  const fd = new FormData();
+  fd.append('note_text', text);
+  const res = await fetch(`/api/reports/${reportId}/notes`, { method:'POST', headers:{'Authorization':'Bearer '+localStorage.getItem('aj_token')}, body:fd });
+  if (res.ok) {
+    closeActionPanel();
+    showDashToast('✓ Note added', 'ok');
+  } else {
+    showDashToast('Failed to add note', 'err');
+  }
+}
+
+async function togglePriority(reportId) {
+  const res = await fetch(`/api/reports/${reportId}/priority`, { method:'PATCH', headers: authHeaders() });
+  if (res.ok) {
+    const data = await res.json();
+    showDashToast(data.is_priority ? '🔴 Marked as Priority' : 'Priority removed', 'ok');
+    loadAllCases();
+    setTimeout(() => openCase(reportId), 300);
+  }
+}
+
+function exportCSV() {
+  fetch('/api/reports/export/csv', { headers: authHeaders() })
+    .then(r => r.blob())
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `autojustice_cases_${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+}
+
+// ── Action Panel (floating overlay) ──────────────────────────────────────────
+
+function showActionPanel(html) {
+  let panel = document.getElementById('actionPanel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'actionPanel';
+    panel.style.cssText = `
+      position:fixed; inset:0; background:rgba(0,0,0,0.4);
+      display:flex; align-items:center; justify-content:center; z-index:9999;
+    `;
+    panel.onclick = (e) => { if (e.target === panel) closeActionPanel(); };
+    document.body.appendChild(panel);
+  }
+  panel.innerHTML = `<div style="background:#fff;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.2);max-width:480px;width:90%">${html}</div>`;
+  panel.style.display = 'flex';
+}
+
+function closeActionPanel() {
+  const panel = document.getElementById('actionPanel');
+  if (panel) panel.style.display = 'none';
+}
+
+function showDashToast(msg, type) {
+  let t = document.getElementById('dashToast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'dashToast';
+    t.style.cssText = 'position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;font-size:13px;font-weight:600;z-index:99999;transition:opacity .3s';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.background = type === 'ok' ? '#16a34a' : '#dc2626';
+  t.style.color = '#fff';
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.opacity = '0'; }, 3000);
 }

@@ -64,6 +64,8 @@ async def lifespan(app: FastAPI):
             "digilocker_aadhaar_suffix": "VARCHAR(10)",
             "digilocker_method":         "VARCHAR(50)",
             "citizen_verification_id":   "VARCHAR(36)",
+            # Phase 4 — Officer dashboard management
+            "is_priority":               "BOOLEAN DEFAULT FALSE",
         }
         with engine.begin() as conn:
             for col, ddl in _new_cols.items():

@@ -3,6 +3,8 @@ AutoJustice AI NEXUS - Reports Router
 Full AI pipeline: OCR → Image Forensics → Fake Detection → AI Triage → FIR Generation.
 Integrates reporter trust scoring, tamper detection, and chain-of-custody hashing.
 """
+import csv
+import io
 import os
 import re
 import uuid
@@ -12,7 +14,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, BackgroundTasks
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -658,6 +660,198 @@ async def validate_evidence(file: UploadFile = File(...)):
         })
 
     return {"valid": True, "blocked": False, "warnings": [], "filename": filename}
+
+
+# ─── Officer Dashboard Management Endpoints ───────────────────────────────────
+
+@router.get("/officers/list")
+def list_officers(
+    db: Session = Depends(get_db),
+    officer: OfficerUser = Depends(require_officer),
+):
+    officers = db.query(OfficerUser).filter(OfficerUser.is_active == True).all()
+    return [
+        {"id": o.id, "name": o.full_name or o.username, "rank": o.rank or "", "username": o.username}
+        for o in officers
+    ]
+
+
+@router.get("/export/csv")
+def export_cases_csv(
+    db: Session = Depends(get_db),
+    officer: OfficerUser = Depends(require_officer),
+):
+    reports = db.query(Report).order_by(Report.created_at.desc()).limit(500).all()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "Case Number", "Date", "Complainant", "Phone", "Email",
+        "Crime Category", "Risk Level", "Status", "Assigned Officer",
+        "Authenticity Score", "AI Summary", "Incident Location",
+    ])
+    for r in reports:
+        writer.writerow([
+            r.case_number,
+            r.created_at.strftime("%Y-%m-%d %H:%M") if r.created_at else "",
+            r.complainant_name,
+            r.complainant_phone or "",
+            r.complainant_email or "",
+            r.crime_category or "",
+            r.risk_level or "",
+            r.status,
+            r.assigned_officer or "Unassigned",
+            f"{(r.authenticity_score or 0)*100:.0f}%" if r.authenticity_score else "",
+            (r.ai_summary or "")[:200],
+            r.incident_location or "",
+        ])
+    output.seek(0)
+    filename = f"autojustice_cases_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.patch("/{report_id}/status")
+def update_case_status(
+    report_id: str,
+    status: str = Form(...),
+    note: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    officer: OfficerUser = Depends(require_officer),
+):
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if not report:
+        raise HTTPException(404, "Report not found")
+    old = report.status
+    report.status = status.upper()
+    if status.upper() == "CLOSED":
+        report.closed_at = datetime.utcnow()
+        if note:
+            report.closure_reason = note
+    if note:
+        from models.db_models import CaseNote
+        cn = CaseNote(
+            report_id=report_id,
+            officer_id=officer.id,
+            note_text=f"[Status changed: {old} → {status.upper()}] {note}",
+            is_internal=True,
+        )
+        db.add(cn)
+    db.add(AuditLog(
+        id=str(uuid.uuid4()),
+        action="STATUS_UPDATE",
+        actor=officer.username,
+        actor_id=officer.id,
+        report_id=report_id,
+        details={"old": old, "new": status.upper(), "note": note},
+    ))
+    db.commit()
+    return {"ok": True, "status": report.status}
+
+
+@router.patch("/{report_id}/assign")
+def assign_officer(
+    report_id: str,
+    officer_id: str = Form(...),
+    db: Session = Depends(get_db),
+    current_officer: OfficerUser = Depends(require_officer),
+):
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if not report:
+        raise HTTPException(404, "Report not found")
+    assignee = db.query(OfficerUser).filter(OfficerUser.id == officer_id).first()
+    if not assignee:
+        raise HTTPException(404, "Officer not found")
+    report.assigned_officer = assignee.full_name or assignee.username
+    report.assigned_officer_id = assignee.id
+    if report.status == "PENDING":
+        report.status = "INVESTIGATING"
+    db.add(AuditLog(
+        id=str(uuid.uuid4()),
+        action="CASE_ASSIGNED",
+        actor=current_officer.username,
+        actor_id=current_officer.id,
+        report_id=report_id,
+        details={"assigned_to": assignee.username, "assigned_to_id": officer_id},
+    ))
+    db.commit()
+    return {"ok": True, "assigned_to": assignee.full_name or assignee.username}
+
+
+@router.patch("/{report_id}/priority")
+def toggle_priority(
+    report_id: str,
+    db: Session = Depends(get_db),
+    officer: OfficerUser = Depends(require_officer),
+):
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if not report:
+        raise HTTPException(404, "Report not found")
+    current = getattr(report, "is_priority", False) or False
+    report.is_priority = not current
+    db.commit()
+    return {"ok": True, "is_priority": report.is_priority}
+
+
+@router.post("/{report_id}/notes")
+def add_case_note(
+    report_id: str,
+    note_text: str = Form(...),
+    db: Session = Depends(get_db),
+    officer: OfficerUser = Depends(require_officer),
+):
+    from models.db_models import CaseNote
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if not report:
+        raise HTTPException(404, "Report not found")
+    note = CaseNote(
+        report_id=report_id,
+        officer_id=officer.id,
+        note_text=note_text.strip(),
+        is_internal=True,
+    )
+    db.add(note)
+    db.add(AuditLog(
+        id=str(uuid.uuid4()),
+        action="NOTE_ADDED",
+        actor=officer.username,
+        actor_id=officer.id,
+        report_id=report_id,
+    ))
+    db.commit()
+    db.refresh(note)
+    return {
+        "id": note.id,
+        "note_text": note.note_text,
+        "officer": officer.full_name or officer.username,
+        "created_at": note.created_at.isoformat(),
+    }
+
+
+@router.get("/{report_id}/notes")
+def get_case_notes(
+    report_id: str,
+    db: Session = Depends(get_db),
+    officer: OfficerUser = Depends(require_officer),
+):
+    from models.db_models import CaseNote
+    notes = (
+        db.query(CaseNote)
+        .filter(CaseNote.report_id == report_id)
+        .order_by(CaseNote.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": n.id,
+            "note_text": n.note_text,
+            "officer": (n.officer.full_name or n.officer.username) if n.officer else "Unknown",
+            "created_at": n.created_at.isoformat(),
+        }
+        for n in notes
+    ]
 
 
 # ─── List Reports ─────────────────────────────────────────────────────────────
