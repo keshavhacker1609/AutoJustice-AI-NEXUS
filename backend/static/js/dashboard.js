@@ -657,7 +657,22 @@ function closeModal() {
 // ── Case Actions ─────────────────────────────────────────────────────────────
 
 function downloadComplaintReport(reportId) {
-  window.open(`/api/reports/${reportId}/fir/download`, '_blank');
+  fetch(`/api/reports/${reportId}/fir/download`, { headers: authHeaders() })
+    .then(res => {
+      if (res.status === 401) { showDashToast('Session expired — please log in again', 'err'); return null; }
+      if (!res.ok) { showDashToast('Complaint Report not found', 'err'); return null; }
+      return res.blob();
+    })
+    .then(blob => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a   = document.createElement('a');
+      a.href     = url;
+      a.download = `ComplaintReport_${reportId.slice(0,8)}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    })
+    .catch(() => showDashToast('Download failed', 'err'));
 }
 
 async function generateComplaintReport(reportId, btn) {
