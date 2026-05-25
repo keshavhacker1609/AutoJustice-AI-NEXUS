@@ -476,10 +476,16 @@ def _send_otp_email(to_email: str, otp: str) -> bool:
 </td></tr></table>
 </body></html>"""
         msg.attach(MIMEText(html, "html"))
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10) as s:
-            s.starttls()
-            s.login(settings.smtp_username, settings.smtp_password)
-            s.sendmail(settings.smtp_from_email, to_email, msg.as_string())
+        # Port 465 = implicit SSL (SMTP_SSL); Port 587 = STARTTLS upgrade
+        if int(settings.smtp_port) == 465:
+            with smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=10) as s:
+                s.login(settings.smtp_username, settings.smtp_password)
+                s.sendmail(settings.smtp_from_email, to_email, msg.as_string())
+        else:
+            with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10) as s:
+                s.starttls()
+                s.login(settings.smtp_username, settings.smtp_password)
+                s.sendmail(settings.smtp_from_email, to_email, msg.as_string())
         logger.info(f"OTP email sent to {to_email}")
         return True
     except Exception as exc:
