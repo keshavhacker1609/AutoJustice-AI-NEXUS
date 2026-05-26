@@ -377,7 +377,8 @@ def _send_otp_sms(to_phone: str, otp: str) -> bool:
                 logger.warning(f"2Factor: invalid phone format {to_phone}")
                 return False
 
-            url = f"https://2factor.in/API/V1/{api_key}/SMS/{digits}/{otp}"
+            # AUTOGEN forces SMS text delivery (avoids voice call fallback)
+            url = f"https://2factor.in/API/V1/{api_key}/SMS/{digits}/{otp}/AUTOGEN"
             with _httpx.Client(timeout=12.0) as _client:
                 resp = _client.get(url)
 
@@ -431,16 +432,15 @@ def _send_otp_sms(to_phone: str, otp: str) -> bool:
 
 
 def _send_otp_email(to_email: str, otp: str) -> bool:
-    """Send OTP email via SMTP. Returns True if sent, False if SMTP not configured."""
+    """
+    Send OTP email via Resend HTTP API (preferred) with SMTP fallback.
+    Resend HTTP API works for ANY recipient email — no domain verification needed.
+    """
     if not settings.smtp_enabled or not settings.smtp_username:
         logger.info(f"[DEV — SMTP disabled] OTP for {to_email}: {otp}")
         return False
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"AutoJustice AI — Your Verification OTP: {otp}"
-        msg["From"]    = settings.smtp_from_email
-        msg["To"]      = to_email
-        html = f"""
+
+    html = f"""
 <!DOCTYPE html><html><body style="margin:0;padding:0;background:#f0f4f8;font-family:'Segoe UI',Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4f8;padding:32px 0">
 <tr><td align="center">
@@ -475,6 +475,43 @@ def _send_otp_email(to_email: str, otp: str) -> bool:
 </table>
 </td></tr></table>
 </body></html>"""
+
+    # ── Resend HTTP API (works for any recipient, no domain needed) ───────────
+    # Detected when SMTP_HOST is smtp.resend.com — use HTTP API instead of SMTP
+    if "resend" in (settings.smtp_host or "").lower():
+        try:
+            import httpx as _httpx
+            api_key = settings.smtp_password  # Resend API key stored as SMTP_PASSWORD
+            resp = _httpx.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "from": "AutoJustice AI NEXUS <onboarding@resend.dev>",
+                    "to": [to_email],
+                    "subject": f"AutoJustice AI — Your Verification OTP: {otp}",
+                    "html": html,
+                },
+                timeout=15.0,
+            )
+            if resp.status_code in (200, 201):
+                logger.info(f"Resend API: OTP email sent to {to_email}")
+                return True
+            else:
+                logger.error(f"Resend API error {resp.status_code}: {resp.text[:300]}")
+                # Fall through to SMTP fallback
+        except Exception as exc:
+            logger.error(f"Resend HTTP API failed: {exc}")
+            # Fall through to SMTP fallback
+
+    # ── SMTP fallback (Gmail / other providers) ───────────────────────────────
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"AutoJustice AI — Your Verification OTP: {otp}"
+        msg["From"]    = settings.smtp_from_email
+        msg["To"]      = to_email
         msg.attach(MIMEText(html, "html"))
         # Port 465 = implicit SSL (SMTP_SSL); Port 587 = STARTTLS upgrade
         if int(settings.smtp_port) == 465:
@@ -486,7 +523,7 @@ def _send_otp_email(to_email: str, otp: str) -> bool:
                 s.starttls()
                 s.login(settings.smtp_username, settings.smtp_password)
                 s.sendmail(settings.smtp_from_email, to_email, msg.as_string())
-        logger.info(f"OTP email sent to {to_email}")
+        logger.info(f"SMTP: OTP email sent to {to_email}")
         return True
     except Exception as exc:
         logger.error(f"SMTP send failed for {to_email}: {exc}")
