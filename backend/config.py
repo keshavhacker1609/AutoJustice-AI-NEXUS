@@ -64,7 +64,7 @@ class Settings(BaseSettings):
 
     # ─── SMS OTP (Phase 2 — Twilio primary / Fast2SMS India fallback) ───
     sms_enabled: bool = Field(default=False)
-    sms_provider: str = Field(default="twilio")          # "twilio" | "fast2sms"
+    sms_provider: str = Field(default="fast2sms")         # "twilio" | "fast2sms" | "2factor"
     twilio_account_sid: str = Field(default="")
     twilio_auth_token: str = Field(default="")
     twilio_from_number: str = Field(default="")           # +1XXXXXXXXXX

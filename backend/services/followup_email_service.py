@@ -291,24 +291,57 @@ class FollowUpEmailService:
     """
 
     def _send(self, to_email: str, subject: str, html_body: str) -> bool:
-        """Low-level SMTP send. Returns True on success."""
+        """Send email via Resend HTTP API (preferred) with SMTP fallback."""
         from config import settings
         if not settings.smtp_enabled or not settings.smtp_username:
             logger.info(f"[FOLLOWUP — SMTP disabled] Would send '{subject}' to {to_email}")
             return False
         if not to_email or "@" not in to_email:
             return False
+
+        # ── Resend HTTP API (works for any recipient) ──────────────────
+        if "resend" in (settings.smtp_host or "").lower():
+            try:
+                import httpx as _httpx
+                resp = _httpx.post(
+                    "https://api.resend.com/emails",
+                    headers={
+                        "Authorization": f"Bearer {settings.smtp_password}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "from": "AutoJustice AI NEXUS <onboarding@resend.dev>",
+                        "to": [to_email],
+                        "subject": subject,
+                        "html": html_body,
+                    },
+                    timeout=15.0,
+                )
+                if resp.status_code in (200, 201):
+                    logger.info(f"Resend API: follow-up email sent '{subject}' → {to_email[:4]}****")
+                    return True
+                else:
+                    logger.error(f"Resend API error {resp.status_code}: {resp.text[:200]}")
+            except Exception as e:
+                logger.error(f"Resend HTTP API failed: {e}")
+
+        # ── SMTP fallback ──────────────────────────────────────────────
         try:
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
             msg["From"]    = settings.smtp_from_email
             msg["To"]      = to_email
             msg.attach(MIMEText(html_body, "html"))
-            with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=12) as s:
-                s.starttls()
-                s.login(settings.smtp_username, settings.smtp_password)
-                s.sendmail(settings.smtp_from_email, to_email, msg.as_string())
-            logger.info(f"Follow-up email sent: '{subject}' → {to_email[:4]}****")
+            if int(settings.smtp_port) == 465:
+                with smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=12) as s:
+                    s.login(settings.smtp_username, settings.smtp_password)
+                    s.sendmail(settings.smtp_from_email, to_email, msg.as_string())
+            else:
+                with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=12) as s:
+                    s.starttls()
+                    s.login(settings.smtp_username, settings.smtp_password)
+                    s.sendmail(settings.smtp_from_email, to_email, msg.as_string())
+            logger.info(f"SMTP: follow-up email sent '{subject}' → {to_email[:4]}****")
             return True
         except Exception as e:
             logger.error(f"Follow-up email failed for {to_email[:4]}****: {e}")

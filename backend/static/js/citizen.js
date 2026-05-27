@@ -22,380 +22,9 @@ let _setLang = null;
 let currentStep = 1;
 let selectedFiles = [];
 let submittedReportId = null;
-let phoneOtpToken  = null;   // session token after phone SMS OTP verified
-let emailOtpToken  = null;   // session token after email OTP verified
-let digilockerSessionToken = null;
-let digilockerProfile = null;
+let otpSessionToken = null;   // Set after successful OTP verification
 let verifiedEmail = null;
-let verifiedPhone = null;
 let resendCountdownTimer = null;
-let phoneResendCountdownTimer = null;
-let _dlPopupTimer = null;
-
-// ── DigiLocker optional panel toggle ─────────────────────────────────────────
-function toggleDigiLockerPanel() {
-  const body   = document.getElementById('dv-opt-body');
-  const toggle = document.getElementById('dv-opt-toggle');
-  if (!body) return;
-  const isOpen = body.style.display !== 'none';
-  body.style.display = isOpen ? 'none' : 'block';
-  if (toggle) toggle.style.transform = isOpen ? '' : 'rotate(90deg)';
-}
-
-// ── Dual verification checker ─────────────────────────────────────────────────
-function _checkBothVerified() {
-  const phoneOk = !!phoneOtpToken;
-  const emailOk = !!emailOtpToken;
-
-  // Update checklist items
-  const cp = document.getElementById('dv-check-phone');
-  const cc = document.getElementById('dv-cc-phone');
-  if (cp) cp.classList.toggle('done', phoneOk);
-  if (cc) cc.textContent = phoneOk ? '✓' : '';
-
-  const ce = document.getElementById('dv-check-email');
-  const cce = document.getElementById('dv-cc-email');
-  if (ce) ce.classList.toggle('done', emailOk);
-  if (cce) cce.textContent = emailOk ? '✓' : '';
-
-  const btn = document.getElementById('dv-proceed-btn');
-  if (btn) {
-    btn.disabled = !(phoneOk && emailOk);
-    if (phoneOk && emailOk) {
-      btn.textContent = '✅  Both verified — Continue to File Complaint →';
-    }
-  }
-}
-
-function proceedWithBothVerified() {
-  const vs = document.getElementById('verify-section');
-  if (vs) vs.style.display = 'none';
-
-  // Show verified banner
-  const banner = document.getElementById('verifiedBanner');
-  if (banner) banner.classList.add('show');
-  const bannerTitle = document.getElementById('verifiedBannerTitle');
-  if (bannerTitle) bannerTitle.textContent = 'Mobile & Email Verified';
-  const ve = document.getElementById('verifiedEmail');
-  if (ve) {
-    const parts = [];
-    if (verifiedPhone) parts.push('+91 ' + verifiedPhone);
-    if (verifiedEmail) parts.push(verifiedEmail);
-    if (digilockerProfile) parts.push('+ Aadhaar (DigiLocker)');
-    ve.textContent = parts.join(' · ') + ' — Identity confirmed';
-  }
-
-  // Pre-fill form fields
-  const phoneField = document.getElementById('complainant_phone');
-  if (phoneField && verifiedPhone) {
-    phoneField.value    = verifiedPhone;
-    phoneField.readOnly = true;
-    phoneField.style.background = 'var(--gray-50)';
-    phoneField.title = 'Verified via SMS OTP';
-  }
-  const emailField = document.getElementById('complainant_email');
-  if (emailField && verifiedEmail) {
-    emailField.value    = verifiedEmail;
-    emailField.readOnly = true;
-  }
-  // Pre-fill name from DigiLocker if available
-  if (digilockerProfile && digilockerProfile.name) {
-    const nameField = document.getElementById('complainant_name');
-    if (nameField) {
-      nameField.value    = digilockerProfile.name;
-      nameField.readOnly = true;
-      nameField.style.background = 'var(--gray-50)';
-      nameField.title    = 'Name verified via Aadhaar DigiLocker';
-    }
-  }
-
-  document.getElementById('formSection').style.display = 'block';
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-// ── Mobile Phone OTP Verification ────────────────────────────────────────────
-
-async function sendPhoneOTP() {
-  const phoneInput = document.getElementById('phoneNumber');
-  const phone = phoneInput ? phoneInput.value.trim().replace(/\D/g, '') : '';
-
-  if (!phone || !/^[6-9]\d{9}$/.test(phone)) {
-    if (phoneInput) phoneInput.style.borderColor = 'var(--red)';
-    showToast('Enter a valid 10-digit Indian mobile number (starts with 6-9).', 'err');
-    if (phoneInput) phoneInput.focus();
-    return;
-  }
-  if (phoneInput) phoneInput.style.borderColor = '';
-
-  const btn = document.getElementById('sendPhoneOtpBtn');
-  btn.disabled = true;
-  btn.textContent = 'Sending…';
-
-  try {
-    const res = await fetch('/api/auth/send-otp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Failed to send OTP');
-
-    document.getElementById('phoneOtpEntryRow').style.display = 'block';
-    if (phoneInput) phoneInput.readOnly = true;
-    btn.style.display = 'none';
-
-    document.getElementById('p0').focus();
-    showToast('OTP sent to your mobile!', 'ok');
-    _startPhoneResendCountdown(60);
-
-    // DEV mode: if SMS disabled, OTP is in server logs — show hint
-    if (data.dev_note) {
-      showToast('⚠ SMS not configured — check server terminal for OTP', 'err');
-    }
-
-  } catch (err) {
-    btn.disabled = false;
-    btn.textContent = 'Send OTP';
-    showToast(err.message, 'err');
-  }
-}
-
-async function verifyPhoneOTP() {
-  const digits = ['p0','p1','p2','p3','p4','p5'].map(id => {
-    const el = document.getElementById(id);
-    return el ? el.value.trim() : '';
-  });
-  const otp = digits.join('');
-
-  if (otp.length !== 6 || !/^\d{6}$/.test(otp)) {
-    showToast('Please enter the complete 6-digit OTP.', 'err');
-    document.getElementById('p0').focus();
-    return;
-  }
-
-  const phone = document.getElementById('phoneNumber').value.trim().replace(/\D/g, '');
-  const btn = document.getElementById('verifyPhoneOtpBtn');
-  btn.disabled = true;
-  btn.textContent = 'Verifying…';
-
-  try {
-    const res = await fetch('/api/auth/verify-otp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, otp }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Verification failed');
-
-    phoneOtpToken = data.session_token;
-    verifiedPhone = phone;
-
-    if (phoneResendCountdownTimer) clearInterval(phoneResendCountdownTimer);
-
-    // Collapse phone panel to verified state
-    const panel = document.getElementById('dvp-phone');
-    if (panel) panel.classList.add('dv-done');
-    const badge = document.getElementById('dv-badge-phone');
-    if (badge) { badge.textContent = '✓ VERIFIED'; badge.className = 'dv-badge dv-badge-ok'; }
-    const doneMsg = document.getElementById('dvp-phone-done');
-    const doneTxt = document.getElementById('dv-phone-done-text');
-    if (doneTxt) doneTxt.textContent = '+91 ' + phone + ' — Verified via SMS OTP';
-    if (doneMsg) doneMsg.style.display = 'block';
-
-    showToast('✓ Mobile number verified!', 'ok');
-    _checkBothVerified();
-
-  } catch (err) {
-    btn.disabled = false;
-    btn.textContent = 'Verify OTP';
-    showToast(err.message, 'err');
-    document.querySelectorAll('.phone-otp-digit').forEach(el => {
-      el.style.borderColor = 'var(--red)';
-      setTimeout(() => { el.style.borderColor = ''; }, 1500);
-    });
-  }
-}
-
-async function resendPhoneOTP() {
-  const btn = document.getElementById('phoneResendBtn');
-  if (btn.disabled) return;
-  const phone = document.getElementById('phoneNumber').value.trim().replace(/\D/g, '');
-  btn.disabled = true;
-  try {
-    const res = await fetch('/api/auth/send-otp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Failed to resend');
-    ['p0','p1','p2','p3','p4','p5'].forEach(id => {
-      const el = document.getElementById(id); if (el) el.value = '';
-    });
-    document.getElementById('p0').focus();
-    showToast('New OTP sent to your mobile!', 'ok');
-    _startPhoneResendCountdown(60);
-  } catch (err) {
-    showToast(err.message, 'err');
-    btn.disabled = false;
-  }
-}
-
-function resetPhoneOtpFlow() {
-  const phoneInput = document.getElementById('phoneNumber');
-  if (phoneInput) { phoneInput.readOnly = false; phoneInput.value = ''; phoneInput.focus(); }
-  document.getElementById('phoneOtpEntryRow').style.display = 'none';
-  const sendBtn = document.getElementById('sendPhoneOtpBtn');
-  if (sendBtn) { sendBtn.style.display = ''; sendBtn.disabled = false; sendBtn.textContent = 'Send OTP'; }
-  const verifyBtn = document.getElementById('verifyPhoneOtpBtn');
-  if (verifyBtn) { verifyBtn.disabled = false; verifyBtn.textContent = 'Verify OTP'; }
-  ['p0','p1','p2','p3','p4','p5'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-  if (phoneResendCountdownTimer) clearInterval(phoneResendCountdownTimer);
-  const rb = document.getElementById('phoneResendBtn');
-  if (rb) rb.disabled = true;
-  const rt = document.getElementById('phoneResendTimer');
-  if (rt) rt.textContent = '60';
-}
-
-function _startPhoneResendCountdown(seconds) {
-  if (phoneResendCountdownTimer) clearInterval(phoneResendCountdownTimer);
-  let remaining = seconds;
-  const timerEl = document.getElementById('phoneResendTimer');
-  const resendBtn = document.getElementById('phoneResendBtn');
-  if (resendBtn) resendBtn.disabled = true;
-  if (timerEl) timerEl.textContent = remaining;
-  phoneResendCountdownTimer = setInterval(() => {
-    remaining -= 1;
-    if (timerEl) timerEl.textContent = remaining;
-    if (remaining <= 0) {
-      clearInterval(phoneResendCountdownTimer);
-      phoneResendCountdownTimer = null;
-      if (resendBtn) resendBtn.disabled = false;
-    }
-  }, 1000);
-}
-
-// ── DigiLocker Aadhaar Verification ──────────────────────────────────────────
-
-async function openDigiLockerPopup() {
-  const btn = document.getElementById('dlVerifyBtn');
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = `
-      <div class="dl-logo-box">🔐</div>
-      <div class="dl-btn-text">
-        <strong>Opening DigiLocker…</strong>
-        <span>Please allow the popup and complete Aadhaar login</span>
-      </div>`;
-  }
-
-  try {
-    // Fetch the auth URL from backend
-    const res = await fetch('/api/digilocker/auth-url');
-    if (!res.ok) throw new Error('Could not generate DigiLocker authorization URL');
-    const data = await res.json();
-
-    // Open popup window (DigiLocker login page or demo callback)
-    const popupWidth  = 520;
-    const popupHeight = 680;
-    const left = Math.round((window.screen.width  - popupWidth)  / 2);
-    const top  = Math.round((window.screen.height - popupHeight) / 2);
-    const features = `width=${popupWidth},height=${popupHeight},left=${left},top=${top},scrollbars=yes,resizable=yes`;
-
-    const popup = window.open(data.auth_url, 'digilocker_auth', features);
-
-    if (!popup || popup.closed) {
-      throw new Error('Popup was blocked by your browser. Please allow popups for this site and try again.');
-    }
-
-    // Listen for postMessage from the callback page
-    _listenForDigiLockerCallback(popup);
-
-  } catch (err) {
-    _resetDlBtn();
-    showToast(err.message || 'Could not open DigiLocker. Please use Email OTP instead.', 'err');
-  }
-}
-
-function _listenForDigiLockerCallback(popup) {
-  // Handler for postMessage from callback page
-  function messageHandler(event) {
-    // Only accept messages from our own origin
-    if (event.origin !== window.location.origin) return;
-    const msg = event.data;
-
-    // Handle both success and error message types from DigiLocker callback
-    if (!msg || (msg.type !== 'DIGILOCKER_VERIFIED' && msg.type !== 'DIGILOCKER_ERROR')) return;
-
-    // Clean up
-    window.removeEventListener('message', messageHandler);
-    if (_dlPopupTimer) { clearInterval(_dlPopupTimer); _dlPopupTimer = null; }
-    if (popup && !popup.closed) popup.close();
-
-    if (msg.type === 'DIGILOCKER_ERROR') {
-      _resetDlBtn();
-      showToast('DigiLocker verification failed: ' + (msg.message || 'Unknown error'), 'err');
-      return;
-    }
-
-    // ── Success — session_token is inside profile object ──
-    const profile = msg.profile || {};
-    digilockerSessionToken = profile.session_token || '';
-    digilockerProfile      = profile;
-    _onDigiLockerVerified(digilockerProfile);
-  }
-
-  window.addEventListener('message', messageHandler);
-
-  // Fallback: poll for popup close (user closed without completing)
-  _dlPopupTimer = setInterval(() => {
-    if (popup && popup.closed) {
-      clearInterval(_dlPopupTimer);
-      _dlPopupTimer = null;
-      window.removeEventListener('message', messageHandler);
-      if (!digilockerSessionToken) {
-        _resetDlBtn();
-        // Don't show error — user may have just closed intentionally
-      }
-    }
-  }, 600);
-}
-
-function _onDigiLockerVerified(profile) {
-  // Hide unverified panel, show verified card
-  const unverifiedPanel = document.getElementById('dlUnverifiedPanel');
-  const verifiedCard    = document.getElementById('dlVerifiedCard');
-  if (unverifiedPanel) unverifiedPanel.style.display = 'none';
-  if (verifiedCard)    verifiedCard.classList.add('show');
-
-  // Fill identity details
-  _setText('dlVerifiedName',    profile.name    || 'Verified Citizen');
-  _setText('dlVerifiedAadhaar', profile.aadhaar_masked || '—');
-  _setText('dlVerifiedDob',     profile.dob     || '—');
-  const genderMap = { M: 'Male', F: 'Female', T: 'Transgender' };
-  _setText('dlVerifiedGender',  genderMap[profile.gender] || profile.gender || '—');
-
-  showToast('✓ Aadhaar identity verified via DigiLocker! Now complete phone & email OTP.', 'ok');
-}
-
-function proceedAfterDigiLocker() {
-  // DigiLocker verified — just show toast; proceed button still requires phone+email
-  showToast('✓ DigiLocker Aadhaar verified! Now complete phone & email OTP.', 'ok');
-}
-
-function _resetDlBtn() {
-  const btn = document.getElementById('dlVerifyBtn');
-  if (btn) {
-    btn.disabled = false;
-    btn.innerHTML = `
-      <div class="dl-logo-box">🔐</div>
-      <div class="dl-btn-text">
-        <strong>Verify with DigiLocker</strong>
-        <span>Opens the official DigiLocker login in a secure popup window</span>
-      </div>
-      <div class="dl-arrow">&#8250;</div>`;
-  }
-}
 
 // ── Email OTP Verification ──────────────────────────────────────────────────
 
@@ -471,27 +100,33 @@ async function verifyOTP() {
 
     if (!res.ok) throw new Error(data.detail || 'Verification failed');
 
-    emailOtpToken = data.session_token;
-    verifiedEmail = email;
+    otpSessionToken = data.session_token;
+    verifiedEmail   = email;
 
+    // Hide OTP section
+    document.getElementById('otp-section').style.display = 'none';
+
+    // Stop countdown
     if (resendCountdownTimer) clearInterval(resendCountdownTimer);
 
-    // Collapse email panel to verified state
-    const panel = document.getElementById('dvp-email');
-    if (panel) panel.classList.add('dv-done');
-    const badge = document.getElementById('dv-badge-email');
-    if (badge) { badge.textContent = '✓ VERIFIED'; badge.className = 'dv-badge dv-badge-ok'; }
-    const doneMsg = document.getElementById('dvp-email-done');
-    const doneTxt = document.getElementById('dv-email-done-text');
-    if (doneTxt) doneTxt.textContent = email + ' — Verified via OTP';
-    if (doneMsg) doneMsg.style.display = 'block';
+    // Show verified banner
+    const banner = document.getElementById('verifiedBanner');
+    banner.classList.add('show');
+    const ve = document.getElementById('verifiedEmail');
+    if (ve) ve.textContent = email + ' — Verified';
 
-    // Pre-fill email field immediately
+    // Reveal form
+    document.getElementById('formSection').style.display = 'block';
+
+    // Pre-fill email in form (read-only)
     const emailField = document.getElementById('complainant_email');
-    if (emailField) { emailField.value = email; }
+    if (emailField) {
+      emailField.value = email;
+      emailField.readOnly = true;
+    }
 
-    showToast('✓ Email verified!', 'ok');
-    _checkBothVerified();
+    showToast('Email verified. Please fill in your complaint details.', 'ok');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 
   } catch (err) {
     btn.disabled = false;
@@ -862,25 +497,7 @@ function buildReview() {
     </tr>
   `).join('');
 
-  // Build identity verification badge — always show both phone + email
-  let idVerifyBadge = '';
-  const phoneLine = verifiedPhone ? `✅ Mobile +91 ${escapeHtml(verifiedPhone)} — SMS OTP` : '';
-  const emailLine = verifiedEmail ? `✅ Email ${escapeHtml(verifiedEmail)} — OTP` : '';
-  const dlLine    = (digilockerSessionToken && digilockerProfile)
-    ? `🔒 Aadhaar ${escapeHtml(digilockerProfile.aadhaar_masked || '')} — DigiLocker Verified` : '';
-
-  idVerifyBadge = `
-    <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:5px;padding:10px 14px;margin-bottom:12px;font-size:12px;">
-      <div style="font-weight:700;color:#14532d;margin-bottom:6px;">Identity Verification</div>
-      <div style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#166534">
-        ${phoneLine ? `<span>${phoneLine}</span>` : ''}
-        ${emailLine ? `<span>${emailLine}</span>` : ''}
-        ${dlLine    ? `<span>${dlLine}</span>`    : ''}
-      </div>
-    </div>`;
-
   document.getElementById('reviewContent').innerHTML = `
-    ${idVerifyBadge}
     <table class="review-table" style="margin-bottom:14px">${rows}</table>
     <div style="margin-bottom:12px">
       <div style="font-size:11px;color:var(--gray-400);font-weight:600;text-transform:uppercase;margin-bottom:6px">Incident Description</div>
@@ -909,10 +526,10 @@ function setupFormSubmit() {
 
     const formData = new FormData();
 
-    // Send both phone + email OTP tokens (both required by backend)
-    if (phoneOtpToken)  formData.append('phone_otp_token', phoneOtpToken);
-    if (emailOtpToken)  formData.append('otp_session_token', emailOtpToken);
-    if (digilockerSessionToken) formData.append('digilocker_session_token', digilockerSessionToken);
+    // Attach OTP session token if verified
+    if (otpSessionToken) {
+      formData.append('otp_session_token', otpSessionToken);
+    }
 
     formData.append('complainant_name',      document.getElementById('complainant_name').value);
     formData.append('incident_description',  document.getElementById('incident_description').value);
@@ -1068,39 +685,13 @@ function escapeHtml(str) {
 
 document.addEventListener('DOMContentLoaded', () => {
   _setupOtpDigits();
-  _setupPhoneOtpDigits();
   _setupCharCounter();
   setupDropzone();
   setupFormSubmit();
   loadLiveStats();
   setInterval(loadLiveStats, 30000);
 
-  // Default: DigiLocker tab active
-  const dlTab = document.getElementById('vt-digilocker');
-  if (dlTab) dlTab.style.display = '';
+  // Focus email input on load
+  const emailInput = document.getElementById('otpEmail');
+  if (emailInput) emailInput.focus();
 });
-
-function _setupPhoneOtpDigits() {
-  const digits = document.querySelectorAll('.phone-otp-digit');
-  digits.forEach((input, idx) => {
-    input.addEventListener('input', (e) => {
-      const val = e.target.value.replace(/\D/g, '');
-      e.target.value = val.slice(-1);
-      if (val && idx < digits.length - 1) digits[idx + 1].focus();
-      if (idx === digits.length - 1 && val) verifyPhoneOTP();
-    });
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Backspace' && !e.target.value && idx > 0) digits[idx - 1].focus();
-      if (e.key === 'ArrowLeft'  && idx > 0) digits[idx - 1].focus();
-      if (e.key === 'ArrowRight' && idx < digits.length - 1) digits[idx + 1].focus();
-    });
-    input.addEventListener('paste', (e) => {
-      e.preventDefault();
-      const pasted = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '');
-      pasted.split('').slice(0, 6).forEach((ch, i) => { if (digits[i]) digits[i].value = ch; });
-      const next = Math.min(pasted.length, digits.length - 1);
-      digits[next].focus();
-      if (pasted.length >= 6) verifyPhoneOTP();
-    });
-  });
-}

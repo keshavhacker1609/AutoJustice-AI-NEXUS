@@ -76,29 +76,33 @@ services:
       - key: RATE_LIMIT_SUBMISSIONS_PER_HOUR
         value: "5"
 
-      # ── SMTP Email ────────────────────────────────────────────────────────────
+      # ── SMTP Email (Resend — works from any cloud IP) ─────────────────────────
       - key: SMTP_ENABLED
         value: "true"
       - key: SMTP_HOST
-        value: smtp.gmail.com
+        value: smtp.resend.com
       - key: SMTP_PORT
-        value: "587"
+        value: "465"
       - key: SMTP_USERNAME
-        sync: false                  # SET MANUALLY: your Gmail address
+        value: resend
       - key: SMTP_PASSWORD
-        sync: false                  # SET MANUALLY: your Gmail App Password
+        sync: false                  # SET MANUALLY: your Resend API key (re_xxx...)
       - key: SMTP_FROM_EMAIL
-        sync: false                  # SET MANUALLY: same as SMTP_USERNAME
+        value: onboarding@resend.dev
 
-      # ── SMS OTP (2Factor.in) ──────────────────────────────────────────────────
+      # ── SMS OTP (Fast2SMS — works without DLT registration in India) ──────────
       - key: SMS_ENABLED
         value: "true"
       - key: SMS_PROVIDER
-        value: 2factor
-      - key: TWOFACTOR_API_KEY
-        sync: false                  # SET MANUALLY: your 2Factor.in API key
+        value: fast2sms              # Fast2SMS OTP route — no DLT needed
       - key: FAST2SMS_API_KEY
-        sync: false                  # Optional fallback
+        sync: false                  # SET MANUALLY: your Fast2SMS API key
+      - key: TWOFACTOR_API_KEY
+        sync: false                  # Optional: 2Factor.in key (needs DLT)
+
+      # ── CORS (allow production domain) ────────────────────────────────────────
+      - key: ALLOWED_ORIGINS
+        value: https://autojustice-ai-nexus-sh19.onrender.com,http://localhost:8000,http://127.0.0.1:8000
 
       # ── DigiLocker OAuth 2.0 ─────────────────────────────────────────────────
       - key: DIGILOCKER_CLIENT_ID
@@ -106,7 +110,7 @@ services:
       - key: DIGILOCKER_CLIENT_SECRET
         sync: false                  # SET MANUALLY after MeitY approval
       - key: DIGILOCKER_REDIRECT_URI
-        value: https://autojustice-ai-nexus.onrender.com/api/digilocker/callback
+        value: https://autojustice-ai-nexus-sh19.onrender.com/api/digilocker/callback
       - key: DIGILOCKER_USE_SANDBOX
         value: "true"                # Switch to false after MeitY production approval
 

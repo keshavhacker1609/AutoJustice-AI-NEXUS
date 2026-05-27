@@ -43,4 +43,4 @@ ENV PORT=8000
 # WORKDIR backend so relative paths (templates/, static/) work, then uvicorn main:app.
 # Shell form so ${PORT} expands on Render (sets PORT=10000 by default).
 WORKDIR /app/backend
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 2
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1
