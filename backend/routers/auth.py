@@ -398,30 +398,31 @@ def _send_otp_sms(to_phone: str, otp: str) -> bool:
     # ── Fast2SMS (India) ──────────────────────────────────────────────
     elif settings.sms_provider == "fast2sms":
         if not settings.fast2sms_api_key:
-            logger.warning("Fast2SMS: API key not configured (FAST2SMS_API_KEY)")
+            logger.warning("Fast2SMS: API key not configured (FAST2SMS_API_KEY not set in environment)")
             return False
         try:
-            import httpx as _httpx, json as _json
+            import httpx as _httpx
             digits = re.sub(r'\D', '', to_phone)
             if len(digits) == 12 and digits.startswith("91"):
                 digits = digits[2:]
             if len(digits) != 10:
-                logger.warning(f"Fast2SMS: invalid phone format {to_phone}")
+                logger.warning(f"Fast2SMS: invalid phone format '{to_phone}' → digits='{digits}'")
                 return False
 
+            logger.info(f"Fast2SMS: sending OTP to {digits[:4]}****{digits[-2:]} (key prefix: {settings.fast2sms_api_key[:8]}...)")
             with _httpx.Client(timeout=12.0) as _client:
                 resp = _client.post(
                     "https://www.fast2sms.com/dev/bulkV2",
-                    json={"route": "otp", "variables_values": otp, "flash": 0, "numbers": digits},
+                    data={"route": "otp", "variables_values": otp, "flash": "0", "numbers": digits},
                     headers={"authorization": settings.fast2sms_api_key, "Cache-Control": "no-cache"},
                 )
-            logger.info(f"Fast2SMS HTTP {resp.status_code}: {resp.text[:300]}")
+            logger.info(f"Fast2SMS HTTP {resp.status_code}: {resp.text[:400]}")
             result = resp.json()
             if result.get("return") is True:
-                logger.info(f"Fast2SMS OTP sent to {digits[:4]}****{digits[-2:]}")
+                logger.info(f"Fast2SMS OTP sent successfully to {digits[:4]}****{digits[-2:]}")
                 return True
             else:
-                logger.error(f"Fast2SMS error: {result.get('message', 'unknown')}")
+                logger.error(f"Fast2SMS error response: {result}")
                 return False
         except Exception as e:
             logger.error(f"Fast2SMS send failed for {to_phone}: {e}")
@@ -436,8 +437,11 @@ def _send_otp_email(to_email: str, otp: str) -> bool:
     Send OTP email via Resend HTTP API (preferred) with SMTP fallback.
     Resend HTTP API works for ANY recipient email — no domain verification needed.
     """
-    if not settings.smtp_enabled or not settings.smtp_username:
+    if not settings.smtp_enabled:
         logger.info(f"[DEV — SMTP disabled] OTP for {to_email}: {otp}")
+        return False
+    if not settings.smtp_username:
+        logger.warning("Email: SMTP_USERNAME not configured")
         return False
 
     html = f"""
@@ -479,9 +483,13 @@ def _send_otp_email(to_email: str, otp: str) -> bool:
     # ── Resend HTTP API (works for any recipient, no domain needed) ───────────
     # Detected when SMTP_HOST is smtp.resend.com — use HTTP API instead of SMTP
     if "resend" in (settings.smtp_host or "").lower():
+        api_key = settings.smtp_password  # Resend API key stored as SMTP_PASSWORD
+        if not api_key:
+            logger.error("Resend API key is empty (SMTP_PASSWORD not set in environment)")
+            return False
         try:
             import httpx as _httpx
-            api_key = settings.smtp_password  # Resend API key stored as SMTP_PASSWORD
+            logger.info(f"Resend API: sending OTP email to {to_email} (key prefix: {api_key[:8]}...)")
             resp = _httpx.post(
                 "https://api.resend.com/emails",
                 headers={
@@ -496,15 +504,16 @@ def _send_otp_email(to_email: str, otp: str) -> bool:
                 },
                 timeout=15.0,
             )
+            logger.info(f"Resend API response: {resp.status_code} — {resp.text[:200]}")
             if resp.status_code in (200, 201):
-                logger.info(f"Resend API: OTP email sent to {to_email}")
+                logger.info(f"Resend API: OTP email sent successfully to {to_email}")
                 return True
             else:
-                logger.error(f"Resend API error {resp.status_code}: {resp.text[:300]}")
-                # Fall through to SMTP fallback
+                logger.error(f"Resend API FAILED {resp.status_code}: {resp.text[:400]}")
+                return False   # Don't fall through — if Resend key is set, SMTP will fail too
         except Exception as exc:
-            logger.error(f"Resend HTTP API failed: {exc}")
-            # Fall through to SMTP fallback
+            logger.error(f"Resend HTTP API exception: {exc}")
+            return False
 
     # ── SMTP fallback (Gmail / other providers) ───────────────────────────────
     try:
@@ -576,22 +585,36 @@ def send_otp(body: SendOTPRequest):
     if use_sms:
         sent = _send_otp_sms(identifier, otp)
         masked = identifier[:3] + "****" + identifier[-2:] if len(identifier) >= 6 else "****"
+        if not sent:
+            # Remove the stored OTP so user can retry without waiting
+            _otp_store.pop(identifier, None)
+            if not settings.sms_enabled:
+                raise HTTPException(503, "SMS service is not enabled. Please use Email OTP instead.")
+            if not settings.fast2sms_api_key and settings.sms_provider == "fast2sms":
+                raise HTTPException(503, "SMS not configured (missing FAST2SMS_API_KEY). Please use Email OTP instead.")
+            raise HTTPException(503, "SMS delivery failed. Please check your mobile number and try again, or use Email OTP instead.")
         return {
             "sent": True,
             "channel": "sms",
-            "sms_used": sent,
+            "sms_used": True,
             "message": f"OTP sent to {masked} via SMS.",
-            "dev_note": "SMS disabled — OTP logged to server console." if not sent else None,
         }
     else:
         sent = _send_otp_email(identifier, otp)
         masked = identifier[:2] + "***@" + identifier.split("@")[1]
+        if not sent:
+            # Remove the stored OTP so user can retry without waiting
+            _otp_store.pop(identifier, None)
+            if not settings.smtp_enabled:
+                raise HTTPException(503, "Email service is not enabled on this server.")
+            if not settings.smtp_password:
+                raise HTTPException(503, "Email not configured (missing SMTP_PASSWORD / Resend API key). Contact admin.")
+            raise HTTPException(503, "Email delivery failed. Please check your email address and try again.")
         return {
             "sent": True,
             "channel": "email",
-            "smtp_used": sent,
-            "message": f"OTP sent to {masked}. Check your inbox (and spam folder).",
-            "dev_note": "SMTP disabled — OTP logged to server console." if not sent else None,
+            "smtp_used": True,
+            "message": f"OTP sent to {masked}. Check your inbox and spam folder.",
         }
 
 
