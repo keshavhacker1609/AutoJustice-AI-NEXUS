@@ -102,11 +102,22 @@ class AITriageService:
     def analyze(self, description: str, evidence_text: str = "") -> TriageResult:
         """
         Full semantic analysis of a report submission.
-        Falls back to rule-based analysis if Gemini is unavailable.
+        Falls back to rule-based analysis if Gemini is unavailable or too slow.
+        Hard 35-second timeout prevents Render's 60 s proxy from killing the request.
         """
         if self.client and GEMINI_AVAILABLE:
             try:
-                return self._gemini_analyze(description, evidence_text)
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(
+                        self._gemini_analyze, description, evidence_text
+                    )
+                    try:
+                        return future.result(timeout=35)   # Render limit is 60 s; stay safe
+                    except concurrent.futures.TimeoutError:
+                        logger.warning(
+                            "Gemini triage timed out (>35 s) — switching to rule-based fallback"
+                        )
             except Exception as e:
                 logger.error(f"Gemini analysis failed: {e}. Using fallback.")
 

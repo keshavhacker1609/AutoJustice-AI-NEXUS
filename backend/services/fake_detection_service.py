@@ -247,12 +247,23 @@ class FakeDetectionService:
 
         if self.client and GEMINI_AVAILABLE:
             try:
-                ai_result = self._l2_gemini_check(description, evidence_text)
-                ai_scores = ai_result.get("scores", {})
-                ai_flags = ai_result.get("flags", [])
-                ai_reasoning = ai_result.get("reasoning", "")
-                ai_recommendation = ai_result.get("recommendation", "REVIEW")
-                flags.extend(ai_flags)
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _pool:
+                    _fut = _pool.submit(self._l2_gemini_check, description, evidence_text)
+                    try:
+                        ai_result = _fut.result(timeout=25)   # 25 s — fast check within request budget
+                    except concurrent.futures.TimeoutError:
+                        logger.warning("Gemini fake detection timed out (>25 s) — using rule-based scores")
+                        ai_result = None
+                if ai_result is not None:
+                    ai_scores = ai_result.get("scores", {})
+                    ai_flags = ai_result.get("flags", [])
+                    ai_reasoning = ai_result.get("reasoning", "")
+                    ai_recommendation = ai_result.get("recommendation", "REVIEW")
+                    flags.extend(ai_flags)
+                else:
+                    ai_scores = self._fallback_scores(description, evidence_text)
+                    ai_recommendation = "REVIEW"
             except Exception as e:
                 logger.error(f"Gemini fake detection failed: {e}")
                 ai_scores = {k: 0.6 for k in DIMENSION_WEIGHTS}  # Neutral fallback
