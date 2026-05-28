@@ -1,3 +1,12 @@
+---
+title: AutoJustice AI NEXUS
+emoji: ⚖️
+colorFrom: blue
+colorTo: red
+sdk: docker
+pinned: false
+---
+
 # AutoJustice AI NEXUS
 ### AI-Driven Digital Forensics & Automated Threat Triage Platform
 
