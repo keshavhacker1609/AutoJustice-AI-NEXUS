@@ -121,8 +121,16 @@ class OCRService:
         try:
             from PIL import ImageEnhance, ImageOps
 
-            # Step 1 — upscale tiny images
+            # ── Cap large images to prevent OOM on Render free tier (512 MB RAM) ──
+            # High-res phone photos (4000×3000) use 50+ MB during PIL processing.
+            # Tesseract reads text fine at ≤1600px — no accuracy loss for typical evidence.
+            MAX_OCR_DIM = 1600
             w, h = img.size
+            if max(w, h) > MAX_OCR_DIM:
+                img.thumbnail((MAX_OCR_DIM, MAX_OCR_DIM), Image.LANCZOS)
+                w, h = img.size
+
+            # Step 1 — upscale tiny images
             if min(w, h) < 1000:
                 scale = max(2.0, 1500 / min(w, h))
                 new_size = (int(w * scale), int(h * scale))

@@ -102,6 +102,14 @@ class ImageForensicsService:
         try:
             img = Image.open(file_path)
 
+            # ── Cap image size to 1200×1200 to prevent OOM on Render free tier ──
+            # Full-res WhatsApp/DSLR photos (4000×3000) consume 100-400 MB during
+            # PIL operations. Downsampling to ≤1.44 MP is safe for forensics.
+            MAX_DIM = 1200
+            if max(img.size) > MAX_DIM:
+                img.thumbnail((MAX_DIM, MAX_DIM), Image.LANCZOS)
+                logger.info(f"Forensics: resized image to {img.size} (was larger than {MAX_DIM}px)")
+
             # Layer 1 — ELA
             ela_score, ela_flags, ela_stats = self._ela_analysis(img, file_path)
             all_flags.extend(ela_flags)
