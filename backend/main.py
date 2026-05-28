@@ -110,7 +110,8 @@ app.add_middleware(RateLimiterMiddleware)
 
 _allowed_origins = os.environ.get(
     "ALLOWED_ORIGINS",
-    "http://localhost:8000,http://127.0.0.1:8000"
+    "http://localhost:8000,http://127.0.0.1:8000,"
+    "https://keshavsingla16-autojustice-ai-nexus.hf.space"
 ).split(",")
 
 app.add_middleware(

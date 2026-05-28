@@ -176,6 +176,13 @@ class AITriageService:
             "demanded": 3, "demand money": 4, "pay or": 3, "will kill": 5,
             "kill me": 5, "kill my family": 5, "harm you": 3, "harm my": 3,
             "threatening": 3, "life threat": 5, "kidnap": 4, "abduct": 4,
+            # ── Voice cloning / vishing / AI fraud ──────────────────────────
+            "voice clone": 4, "ai generated": 3, "ai voice": 4, "deepfake": 4,
+            "vishing": 4, "bank balance got empty": 5, "balance got empty": 4,
+            "account empty": 4, "bank empty": 4, "money gone": 3,
+            "impersonated": 3, "pretended to be": 3, "posed as": 3,
+            "fake call": 3, "fraud call": 3, "unknown number": 2,
+            "sent otp": 3, "gave otp": 3, "shared otp": 3, "bank balance": 3,
         }
         medium_indicators = {
             "harassment": 2, "abuse": 2, "fraud": 2, "scam": 2, "phishing": 2,
@@ -183,6 +190,8 @@ class AITriageService:
             "otp": 2, "debit": 2, "debited": 2, "hacked": 3,
             "blackmailed": 4, "cheated": 2, "duped": 2, "threatened": 2,
             "demand": 2, "pay else": 2, "wont pay": 2, "won't pay": 2,
+            "unknown call": 2, "relative": 1, "hospital": 1, "urgent": 1,
+            "voice": 1, "call": 1, "pretend": 2, "relative impersonat": 3,
         }
 
         # ── AI chatbot evidence check (before all other scoring) ──────────────
