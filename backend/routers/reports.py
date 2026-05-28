@@ -479,20 +479,15 @@ async def submit_report(
         except Exception as e:
             logger.warning(f"DigiLocker session verify error: {e}")
 
-    # ── Enforce: BOTH phone + email must be verified ──────────────────────────
-    if not phone_otp_verified:
-        raise HTTPException(
-            status_code=401,
-            detail="Mobile number verification is required. Please complete SMS OTP verification."
-        )
+    # ── Enforce: Email is required; phone OTP is optional ────────────────────
     if not email_otp_verified:
         raise HTTPException(
             status_code=401,
             detail="Email verification is required. Please complete Email OTP verification."
         )
 
-    # Identity confirmed via dual OTP
-    digilocker_verified_flag = phone_otp_verified and email_otp_verified
+    # Identity confirmed — email required, phone optional
+    digilocker_verified_flag = email_otp_verified
 
     # ── 1. Input validation ───────────────────────────────────────────
     description = incident_description.strip()
