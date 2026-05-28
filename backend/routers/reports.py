@@ -216,19 +216,21 @@ def _process_everything_bg(
             fake_result.authenticity_score, trust_score
         )
         if max_tamper_score >= _cfg.ela_tamper_threshold:
-            adjusted_auth = min(adjusted_auth, 0.50)
+            # Cap auth at midpoint between fake_threshold and 1.0 when tampering detected
+            adjusted_auth = min(adjusted_auth, _cfg.fake_report_threshold + (1.0 - _cfg.fake_report_threshold) * 0.5)
             fake_result.flags.append(
                 f"IMAGE FORENSICS: Potential tampering detected (score={max_tamper_score:.0%})"
             )
         if is_freq_suspicious and freq_reason:
-            adjusted_auth = min(adjusted_auth, 0.40)
+            # Cap auth at fake_threshold boundary when frequency abuse detected
+            adjusted_auth = min(adjusted_auth, _cfg.fake_report_threshold)
             fake_result.flags.append(f"FREQUENCY ABUSE: {freq_reason}")
 
         report.authenticity_score  = adjusted_auth
         report.is_flagged_fake     = adjusted_auth < _cfg.fake_report_threshold
         report.fake_flags          = list(set(fake_result.flags))
         report.fake_recommendation = fake_result.recommendation
-        if adjusted_auth < 0.25:
+        if adjusted_auth < _cfg.auth_reject_threshold:
             report.fake_recommendation = "REJECT"
         elif adjusted_auth < _cfg.fake_report_threshold and report.fake_recommendation == "GENUINE":
             report.fake_recommendation = "REVIEW"
@@ -251,9 +253,9 @@ def _process_everything_bg(
         # REVIEW  (auth 0.50–0.74): withhold sections — pending officer verification
         # REJECT  (auth < 0.50 or flagged): replace with false-complaint sections
         if report.fake_recommendation == "REJECT" or report.is_flagged_fake:
-            # Confirmed fake — map false complaint laws instead
+            # Confirmed fake — map false-complaint laws, floor risk at reject_floor
             report.risk_level    = "HIGH"
-            report.risk_score    = max(report.risk_score, 0.80)
+            report.risk_score    = max(report.risk_score, _cfg.risk_reject_floor)
             report.crime_subcategory = "False Complaint Filing"
             report.bns_sections  = [
                 "BNS Section 211 (Intentionally giving false information to public servant)",
@@ -265,25 +267,27 @@ def _process_everything_bg(
                 f"Recommend investigating complainant under BNS §211. "
                 f"Original triage: {triage.ai_summary}"
             )
-        elif report.fake_recommendation == "REVIEW" or adjusted_auth < 0.75:
-            # Borderline authenticity — withhold legal sections until officer verifies
+        elif report.fake_recommendation == "REVIEW" or adjusted_auth < _cfg.auth_genuine_threshold:
+            # Borderline — withhold legal sections until officer verifies
             report.bns_sections = [
-                "⚠️ Legal sections withheld — authenticity score below threshold. "
-                "Officer verification required before legal mapping."
+                f"⚠️ Legal sections withheld — authenticity {adjusted_auth:.0%} below "
+                f"verification threshold ({_cfg.auth_genuine_threshold:.0%}). "
+                "Officer review required before legal mapping."
             ]
             report.fake_flags = list(set(
                 (report.fake_flags or []) +
-                [f"LEGAL MAPPING WITHHELD: Authenticity {adjusted_auth:.0%} below 75% threshold"]
+                [f"LEGAL MAPPING WITHHELD: Auth {adjusted_auth:.0%} < threshold {_cfg.auth_genuine_threshold:.0%}"]
             ))
-            if triage.risk_level == "HIGH" and adjusted_auth < 0.65:
+            # Also cap risk if auth is below the review boundary
+            if triage.risk_level == "HIGH" and adjusted_auth < _cfg.auth_review_boundary:
                 report.risk_level = "MEDIUM"
-                report.risk_score = min(report.risk_score, 0.58)
+                report.risk_score = min(report.risk_score, _cfg.risk_review_cap)
                 report.fake_flags = list(set(
                     (report.fake_flags or []) +
-                    ["RISK CAPPED: Authenticity too low — downgraded to MEDIUM"]
+                    [f"RISK CAPPED: Auth {adjusted_auth:.0%} < boundary {_cfg.auth_review_boundary:.0%} — downgraded to MEDIUM"]
                 ))
         else:
-            # Genuine (auth >= 0.75) — assign full legal sections
+            # Genuine (auth >= auth_genuine_threshold) — assign full legal sections
             report.bns_sections = triage.bns_sections
 
         # ── Stage 7: Jurisdiction detection ──────────────────────────────

@@ -214,18 +214,32 @@ class AITriageService:
         if _amount_re.search(text):
             medium_score += 3
 
-        if high_score >= 4:
-            risk_level, risk_score = "HIGH", min(0.5 + high_score * 0.05, 0.95)
-        elif medium_score >= 3 or high_score >= 2:
-            risk_level, risk_score = "MEDIUM", min(0.40 + medium_score * 0.03, 0.75)
+        # ── Score → Risk Level (all thresholds from config, no magic numbers) ──
+        _HIGH_TRIGGER  = 4   # min keyword weight sum to enter HIGH path
+        _MED_TRIGGER   = 3   # min keyword weight sum to enter MEDIUM path
+        _HIGH_ALT_TRIG = 2   # high_score alone sufficient for MEDIUM
+
+        if high_score >= _HIGH_TRIGGER:
+            risk_level = "HIGH"
+            risk_score = min(
+                settings.risk_high_base + high_score * settings.risk_keyword_step,
+                1.0 - settings.medium_risk_threshold * 0.1   # cap preserves headroom
+            )
+        elif medium_score >= _MED_TRIGGER or high_score >= _HIGH_ALT_TRIG:
+            risk_level = "MEDIUM"
+            risk_score = min(
+                settings.risk_medium_base + medium_score * settings.risk_medium_step,
+                settings.high_risk_threshold + (settings.risk_review_cap - settings.high_risk_threshold) * 0.5
+            )
         else:
-            risk_level, risk_score = "LOW", 0.15
+            risk_level = "LOW"
+            risk_score = settings.risk_low_baseline
 
         # ── AI chatbot cap — must apply AFTER scoring ──────────────────────────
         if has_chatbot_evidence:
             if risk_level == "HIGH":
                 risk_level = "MEDIUM"
-            risk_score = min(risk_score, 0.40)
+            risk_score = min(risk_score, settings.medium_risk_threshold)
             logger.info("Triage risk capped: AI chatbot detected in evidence text")
 
         # Detect most likely category

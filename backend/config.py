@@ -35,10 +35,68 @@ class Settings(BaseSettings):
     fir_output_dir: str = Field(default="firs")
     max_upload_size_mb: int = Field(default=25)
 
-    # ─── Risk Engine Thresholds ───────────────────────────────────────
-    high_risk_threshold: float = Field(default=0.70)
-    medium_risk_threshold: float = Field(default=0.40)
-    fake_report_threshold: float = Field(default=0.45)
+    # ─── Risk Engine Base Thresholds (tune these; derived values auto-update) ──
+    high_risk_threshold: float = Field(default=0.70)    # risk_score >= this → HIGH
+    medium_risk_threshold: float = Field(default=0.40)  # risk_score >= this → MEDIUM
+    fake_report_threshold: float = Field(default=0.45)  # auth_score >= this → GENUINE
+
+    # ─── Derived Auth & Risk Thresholds (all computed — never hardcode below) ──
+    # auth_genuine_threshold  : midpoint between fake_threshold and 1.0
+    #                           → above this, auto-map legal sections
+    # auth_reject_threshold   : half of fake_threshold
+    #                           → below this, treat as fabricated complaint
+    # auth_review_boundary    : midpoint between reject and genuine thresholds
+    #                           → used for risk-cap decisions
+    # risk_review_cap         : midpoint between medium and high thresholds
+    #                           → max risk score allowed for REVIEW cases
+    # risk_reject_floor       : high_threshold + 1/3 of remaining headroom
+    #                           → min risk score for confirmed fake/REJECT cases
+    # risk_low_baseline       : half of medium threshold
+    #                           → baseline score for LOW-risk keyword fallback
+
+    @property
+    def auth_genuine_threshold(self) -> float:
+        return (self.fake_report_threshold + 1.0) / 2
+
+    @property
+    def auth_reject_threshold(self) -> float:
+        return self.fake_report_threshold / 2
+
+    @property
+    def auth_review_boundary(self) -> float:
+        return (self.auth_reject_threshold + self.auth_genuine_threshold) / 2
+
+    @property
+    def risk_review_cap(self) -> float:
+        return (self.medium_risk_threshold + self.high_risk_threshold) / 2
+
+    @property
+    def risk_reject_floor(self) -> float:
+        return self.high_risk_threshold + (1.0 - self.high_risk_threshold) / 3
+
+    @property
+    def risk_low_baseline(self) -> float:
+        return self.medium_risk_threshold / 2
+
+    @property
+    def risk_high_base(self) -> float:
+        """Starting score for HIGH-risk keyword path."""
+        return self.high_risk_threshold - (self.high_risk_threshold - self.medium_risk_threshold) / 2
+
+    @property
+    def risk_keyword_step(self) -> float:
+        """Score increment per additional HIGH-risk keyword match."""
+        return (1.0 - self.high_risk_threshold) / 10
+
+    @property
+    def risk_medium_base(self) -> float:
+        """Starting score for MEDIUM-risk keyword path."""
+        return self.medium_risk_threshold
+
+    @property
+    def risk_medium_step(self) -> float:
+        """Score increment per additional MEDIUM-risk keyword match."""
+        return (self.high_risk_threshold - self.medium_risk_threshold) / 10
 
     # ─── Image Forensics ──────────────────────────────────────────────
     ela_quality: int = Field(default=90)                 # ELA JPEG re-save quality
