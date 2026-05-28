@@ -806,58 +806,111 @@ function displayResult(data) {
   if (stepProgress) stepProgress.style.display = 'none';
   document.getElementById('result-section').style.display = 'block';
 
-  const risk = (data.risk_level || 'PENDING').toLowerCase();
+  submittedReportId = data.id;
+  _applyResultData(data);
+
+  document.querySelector('.result-wrap')?.scrollIntoView({ behavior: 'smooth' });
+
+  // If still PROCESSING, poll until AI analysis is complete
+  if (!data.risk_level || data.status === 'PROCESSING') {
+    _pollForAnalysis(data.case_number, data.id);
+  } else if (data.case_number) {
+    _pollForFir(data.case_number, data.id);
+  }
+}
+
+function _applyResultData(data) {
+  const isProcessing = !data.risk_level || data.status === 'PROCESSING';
+  const risk = (data.risk_level || 'pending').toLowerCase();
   const head = document.getElementById('resultHead');
-  if (head) head.className = `result-head ${risk}`;
+  if (head) head.className = `result-head ${isProcessing ? 'processing' : risk}`;
 
-  document.getElementById('resultBadge').textContent      = 'Complaint Registered';
+  document.getElementById('resultBadge').textContent      = isProcessing ? 'Complaint Received — Analysing…' : 'Complaint Registered';
   document.getElementById('resultCaseNumber').textContent = data.case_number || '—';
-  document.getElementById('resultStatusMsg').textContent  =
-    risk === 'high'   ? 'High-risk threat detected. Complaint Report auto-registered. Police notified.' :
-    risk === 'medium' ? 'Medium-risk case. Under priority review.' :
-                        'Complaint submitted successfully. Under standard review.';
+  document.getElementById('resultStatusMsg').textContent  = isProcessing
+    ? 'Your complaint has been received. AI analysis is in progress — this page will update automatically.'
+    : (risk === 'high'   ? 'High-risk threat detected. Complaint Report auto-registered. Police notified.' :
+       risk === 'medium' ? 'Medium-risk case. Under priority review.' :
+                           'Complaint submitted successfully. Under standard review.');
 
-  document.getElementById('resultRiskLevel').textContent  = (data.risk_level || '—');
-  document.getElementById('resultRiskLevel').style.color  =
+  document.getElementById('resultRiskLevel').textContent = isProcessing ? 'Analysing…' : (data.risk_level || '—');
+  document.getElementById('resultRiskLevel').style.color =
+    isProcessing ? 'var(--gray-400)' :
     risk === 'high' ? 'var(--red)' : risk === 'medium' ? 'var(--saffron)' : 'var(--success)';
 
-  document.getElementById('resultCrimeCategory').textContent = data.crime_category || '—';
+  document.getElementById('resultCrimeCategory').textContent = isProcessing ? 'Analysing…' : (data.crime_category || '—');
 
-  // FIR status: FIR is now always generated in background (never ready at response time).
-  // Show "Generating…" and poll for readiness if risk is high/medium.
   const firStatusEl = document.getElementById('resultFirStatus');
   if (firStatusEl) {
     const shouldHaveFir = ['high', 'medium'].includes(risk) && data.fake_recommendation !== 'REJECT';
-    firStatusEl.textContent = shouldHaveFir
-      ? 'Complaint Report generating… (ready in ~1 minute)'
-      : 'Pending Officer Review';
+    firStatusEl.textContent = isProcessing
+      ? 'Generating after AI analysis…'
+      : (data.fir_path ? 'Complaint Report Ready ✅'
+          : shouldHaveFir ? 'Complaint Report generating… (~1 min)' : 'Pending Officer Review');
   }
 
   const auth    = data.authenticity_score || 0;
   const authPct = (auth * 100).toFixed(0);
-  document.getElementById('resultAuthenticity').textContent =
-    data.fake_recommendation === 'GENUINE' ? `Genuine (${authPct}%)` :
-    data.fake_recommendation === 'REVIEW'  ? `Under Review (${authPct}%)` :
-    data.is_flagged_fake                   ? `Flagged (${authPct}%)` : `${authPct}%`;
+  document.getElementById('resultAuthenticity').textContent = isProcessing ? 'Analysing…'
+    : (data.fake_recommendation === 'GENUINE' ? `Genuine (${authPct}%)`
+    : data.fake_recommendation === 'REVIEW'  ? `Under Review (${authPct}%)`
+    : data.is_flagged_fake                   ? `Flagged (${authPct}%)` : `${authPct}%`);
 
-  const authColor = auth > 0.65 ? 'var(--success)' : auth > 0.45 ? 'var(--saffron)' : 'var(--red)';
-  const authBar   = document.getElementById('authBar');
-  if (authBar) { authBar.style.width = authPct + '%'; authBar.style.background = authColor; }
+  const authBar = document.getElementById('authBar');
+  if (authBar && !isProcessing) {
+    const authColor = auth > 0.65 ? 'var(--success)' : auth > 0.45 ? 'var(--saffron)' : 'var(--red)';
+    authBar.style.width      = authPct + '%';
+    authBar.style.background = authColor;
+  }
 
-  document.getElementById('resultAiSummary').textContent = data.ai_summary || 'Analysis complete.';
-  document.getElementById('resultHash').textContent      = data.content_hash || 'N/A';
+  document.getElementById('resultAiSummary').textContent = isProcessing
+    ? 'AI is analysing your complaint. Results will appear here in 30–60 seconds…'
+    : (data.ai_summary || 'Analysis complete.');
+  document.getElementById('resultHash').textContent = data.content_hash || 'N/A';
 
-  // Poll for FIR readiness every 15 s for up to 3 minutes
-  const caseNum = data.case_number;
-  if (caseNum) _pollForFir(caseNum, data.id);
-
-  document.querySelector('.result-wrap')?.scrollIntoView({ behavior: 'smooth' });
+  // Show download button if FIR already ready
+  const dlBtn = document.getElementById('downloadFirBtn');
+  if (dlBtn) {
+    if (data.fir_path) {
+      dlBtn.style.display = 'inline-flex';
+      dlBtn.onclick = downloadComplaintReport;
+    } else {
+      dlBtn.style.display = 'none';
+    }
+  }
 }
 
+/** Poll every 10 s until AI analysis fields are populated */
+function _pollForAnalysis(caseNumber, reportId) {
+  let attempts = 0;
+  const MAX = 24;   // 24 × 10 s = 4 min max
+  const iv = setInterval(async () => {
+    try {
+      attempts++;
+      const res = await fetch(`/api/reports/track/${caseNumber}`);
+      if (!res.ok) return;
+      const data = await res.json();
+
+      if (data.risk_level && data.status !== 'PROCESSING') {
+        clearInterval(iv);
+        submittedReportId = reportId || submittedReportId;
+        _applyResultData(data);
+        showToast('✅ AI analysis complete!', 'ok');
+        // Continue polling for FIR if needed
+        _pollForFir(caseNumber, reportId);
+      } else if (attempts >= MAX) {
+        clearInterval(iv);
+        showToast('Analysis is taking longer than expected. Refresh the page later.', 'err');
+      }
+    } catch (_) {}
+  }, 10000);
+}
+
+/** Poll every 15 s until FIR PDF is generated */
 function _pollForFir(caseNumber, reportId) {
   let attempts = 0;
-  const MAX_ATTEMPTS = 12; // 12 × 15 s = 3 min
-  const interval = setInterval(async () => {
+  const MAX = 12;   // 12 × 15 s = 3 min
+  const iv = setInterval(async () => {
     try {
       attempts++;
       const res = await fetch(`/api/reports/track/${caseNumber}`);
@@ -865,25 +918,15 @@ function _pollForFir(caseNumber, reportId) {
       const data = await res.json();
 
       if (data.fir_path) {
-        clearInterval(interval);
-        // Update FIR status label
+        clearInterval(iv);
+        submittedReportId = reportId || submittedReportId;
         const firStatusEl = document.getElementById('resultFirStatus');
         if (firStatusEl) firStatusEl.textContent = 'Complaint Report Ready ✅';
-
-        // Show download button
-        submittedReportId = reportId || submittedReportId;
         const dlBtn = document.getElementById('downloadFirBtn');
-        if (dlBtn) {
-          dlBtn.style.display = 'inline-flex';
-          dlBtn.onclick = downloadComplaintReport;
-        }
+        if (dlBtn) { dlBtn.style.display = 'inline-flex'; dlBtn.onclick = downloadComplaintReport; }
         showToast('✅ Complaint Report PDF is ready — click Download!', 'ok');
-      } else if (attempts >= MAX_ATTEMPTS) {
-        clearInterval(interval);
-        const firStatusEl = document.getElementById('resultFirStatus');
-        if (firStatusEl && firStatusEl.textContent.includes('generating')) {
-          firStatusEl.textContent = 'Complaint Report is being prepared by officers';
-        }
+      } else if (attempts >= MAX) {
+        clearInterval(iv);
       }
     } catch (_) {}
   }, 15000);

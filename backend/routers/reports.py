@@ -64,26 +64,40 @@ def _get_client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-# ─── Background: Evidence Processing + FIR Generation ───────────────────────────
+# ─── Background: FULL Pipeline (AI triage + fake detect + OCR + forensics + FIR) ─
 #
-# All image-heavy work (OCR, ELA forensics) runs here so the HTTP response
-# returns in ~10-15 s (just AI triage) and never hits Render's 60 s proxy limit.
+# The HTTP response returns in < 3 s (just file I/O + DB insert).
+# EVERYTHING else runs here, after the response is already sent to the client.
+# No Render 60-second proxy timeout risk.
 #
 
-def _process_evidence_and_fir_bg(report_id: str):
+def _process_everything_bg(
+    report_id: str,
+    is_freq_suspicious: bool,
+    freq_reason: str,
+    trust_score: float,
+):
     """
-    Background task — runs after the HTTP response is already sent.
-    Steps:
-      1. OCR every uploaded evidence file
-      2. Image forensics (ELA tamper detection) on every image
-      3. Video forensics on every video
-      4. Re-adjust authenticity score based on tamper findings
-      5. Generate Complaint Report PDF (for HIGH/MEDIUM genuine reports)
-      6. Advance report status PROCESSING → TRIAGED → COMPLAINT_REGISTERED
+    Full AI + forensics pipeline executed in a background task.
+
+    Stages (all happen after HTTP response is sent):
+      1.  OCR + EXIF on every evidence file
+      2.  Image ELA forensics
+      3.  Video forensics
+      4.  Fake report detection (Gemini L2 + rule-based layers)
+      5.  AI semantic triage (Gemini)
+      6.  Risk capping / fake escalation logic
+      7.  Jurisdiction detection
+      8.  Reporter trust update
+      9.  Complaint Report PDF generation
+     10.  Follow-up acknowledgement email
     """
     from database import SessionLocal
     from models.db_models import Report, EvidenceFile as _EvidenceFile
-    from config import FIR_PATH, UPLOAD_PATH, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, settings as _cfg
+    from config import (
+        FIR_PATH, UPLOAD_PATH, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS,
+        settings as _cfg,
+    )
     import datetime as _dt
 
     db = SessionLocal()
@@ -94,17 +108,19 @@ def _process_evidence_and_fir_bg(report_id: str):
             logger.error(f"[BG] Report {report_id} not found")
             return
 
+        description = report.incident_description
+
         evidence_files = (
             db.query(_EvidenceFile)
             .filter(_EvidenceFile.report_id == report_id)
             .all()
         )
 
-        # ── Step 1 & 2: OCR + forensics ──────────────────────────────────
-        all_ocr_text: list[str] = []
+        # ── Stage 1–3: OCR + forensics ────────────────────────────────────
+        all_ocr_text: list = []
         max_tamper_score = 0.0
-        all_forensic_flags: list[str] = []
-        forensic_summaries: list[str] = []
+        all_forensic_flags: list = []
+        forensic_summaries: list = []
 
         for ev in evidence_files:
             stored_path = UPLOAD_PATH / ev.stored_filename
@@ -113,22 +129,21 @@ def _process_evidence_and_fir_bg(report_id: str):
 
             suffix = Path(ev.stored_filename).suffix.lower()
 
-            # OCR (images, PDFs, text)
+            # OCR
             try:
                 ocr_text, ocr_conf = _ocr_service.extract_text(stored_path)
-                ev.ocr_text = ocr_text
+                ev.ocr_text       = ocr_text
                 ev.ocr_confidence = ocr_conf
                 if ocr_text and not ocr_text.startswith("["):
                     all_ocr_text.append(ocr_text)
-                # EXIF for images
                 if suffix in IMAGE_EXTENSIONS:
-                    exif_data = _ocr_service.extract_exif_metadata(stored_path)
-                    if exif_data:
-                        ev.exif_data = exif_data
-            except Exception as ocr_err:
-                logger.error(f"[BG OCR] {ev.original_filename}: {ocr_err}")
+                    exif = _ocr_service.extract_exif_metadata(stored_path)
+                    if exif:
+                        ev.exif_data = exif
+            except Exception as err:
+                logger.error(f"[BG OCR] {ev.original_filename}: {err}")
 
-            # Image forensics
+            # Image forensics (ELA)
             if ev.file_type == "image":
                 try:
                     fr = _forensics.analyze(stored_path)
@@ -143,8 +158,8 @@ def _process_evidence_and_fir_bg(report_id: str):
                     all_forensic_flags.extend(fr["flags"])
                     if fr["summary"]:
                         forensic_summaries.append(fr["summary"])
-                except Exception as fe:
-                    logger.error(f"[BG FORENSICS] {ev.original_filename}: {fe}")
+                except Exception as err:
+                    logger.error(f"[BG FORENSICS] {ev.original_filename}: {err}")
 
             # Video forensics
             if ev.file_type == "video":
@@ -163,108 +178,224 @@ def _process_evidence_and_fir_bg(report_id: str):
                     all_forensic_flags.extend(vr.get("flags", []))
                     if vr.get("summary"):
                         forensic_summaries.append(f"[VIDEO {ev.original_filename}] {vr['summary']}")
-                except Exception as ve:
-                    logger.error(f"[BG VIDEO FORENSICS] {ev.original_filename}: {ve}")
+                except Exception as err:
+                    logger.error(f"[BG VIDEO] {ev.original_filename}: {err}")
 
-        db.commit()  # save per-file OCR + forensics data
+        db.commit()   # persist per-file OCR + forensics data
 
-        # ── Step 3: Update report-level forensics + OCR text ─────────────
         combined_ocr = " ".join(all_ocr_text)
         if combined_ocr:
             report.extracted_text = combined_ocr[:5000]
-
+            # Refresh content hash now that we have OCR text
+            report.content_hash = _hash_service.hash_report_content(
+                description, combined_ocr, report.complainant_name
+            )
         if evidence_files:
             report.forensics_tamper_score = round(max_tamper_score, 3)
-            unique_flags = list(set(all_forensic_flags))
-            report.forensics_flags = unique_flags + (report.forensics_flags or [])
-            report.forensics_summary = " | ".join(forensic_summaries) if forensic_summaries else None
+            report.forensics_flags        = list(set(all_forensic_flags))
+            report.forensics_summary      = " | ".join(forensic_summaries) or None
 
-        # ── Step 4: Re-adjust authenticity score based on tamper findings ─
-        if (
-            max_tamper_score >= _cfg.ela_tamper_threshold
-            and report.authenticity_score is not None
-        ):
-            old = report.authenticity_score
-            report.authenticity_score = min(old, 0.50)
-            report.forensics_flags = list(set(
-                (report.forensics_flags or []) +
-                [f"IMAGE FORENSICS: Potential tampering detected (score={max_tamper_score:.0%})"]
-            ))
-            logger.info(
-                f"[BG] Auth score adjusted for tamper: {old:.2f} → {report.authenticity_score:.2f} "
-                f"case={report.case_number}"
+        # ── Stage 4: Fake report detection ───────────────────────────────
+        try:
+            fake_result = _fake_detector.analyze(
+                description=description,
+                evidence_text=combined_ocr,
+                content_hash=report.content_hash or "",
+                db=db,
             )
+        except Exception as err:
+            logger.error(f"[BG FAKE] {report_id}: {err}")
+            from services.fake_detection_service import FakeDetectionResult
+            fake_result = FakeDetectionResult(
+                authenticity_score=0.6, recommendation="REVIEW", flags=[]
+            )
+
+        adjusted_auth = _trust_service.apply_trust_modifier(
+            fake_result.authenticity_score, trust_score
+        )
+        if max_tamper_score >= _cfg.ela_tamper_threshold:
+            adjusted_auth = min(adjusted_auth, 0.50)
+            fake_result.flags.append(
+                f"IMAGE FORENSICS: Potential tampering detected (score={max_tamper_score:.0%})"
+            )
+        if is_freq_suspicious and freq_reason:
+            adjusted_auth = min(adjusted_auth, 0.40)
+            fake_result.flags.append(f"FREQUENCY ABUSE: {freq_reason}")
+
+        report.authenticity_score  = adjusted_auth
+        report.is_flagged_fake     = adjusted_auth < _cfg.fake_report_threshold
+        report.fake_flags          = list(set(fake_result.flags))
+        report.fake_recommendation = fake_result.recommendation
+        if adjusted_auth < 0.25:
+            report.fake_recommendation = "REJECT"
+        elif adjusted_auth < _cfg.fake_report_threshold and report.fake_recommendation == "GENUINE":
+            report.fake_recommendation = "REVIEW"
+
+        # ── Stage 5: AI semantic triage ───────────────────────────────────
+        try:
+            triage = _ai_triage.analyze(description, combined_ocr)
+        except Exception as err:
+            logger.error(f"[BG TRIAGE] {report_id}: {err}")
+            triage = _ai_triage._fallback_analyze(description, combined_ocr)
+
+        report.risk_level       = triage.risk_level
+        report.risk_score       = triage.risk_score
+        report.crime_category   = triage.crime_category
+        report.crime_subcategory = triage.crime_subcategory
+        report.ai_summary       = triage.ai_summary
+        report.entities         = triage.entities
+        report.bns_sections     = triage.bns_sections
+
+        # ── Stage 6: Risk capping / fake escalation ───────────────────────
+        if report.fake_recommendation in ("REVIEW", "REJECT") or report.is_flagged_fake:
+            if triage.risk_level == "HIGH" and adjusted_auth < 0.65:
+                report.risk_level = "MEDIUM"
+                report.risk_score = min(report.risk_score, 0.58)
+                report.fake_flags = list(set(
+                    (report.fake_flags or []) +
+                    ["RISK CAPPED: Authenticity too low — downgraded to MEDIUM"]
+                ))
+        if report.is_flagged_fake and report.fake_recommendation == "REJECT":
+            report.risk_level    = "HIGH"
+            report.risk_score    = max(report.risk_score, 0.80)
+            report.crime_subcategory = "False Complaint Filing"
+            report.bns_sections  = [
+                "BNS Section 211 (Intentionally giving false information to public servant)",
+                "BNS Section 218 (Public servant framing incorrect record/writing)",
+                "IT Act Section 66D (Cheating by personation using computer resource)",
+            ]
+            report.ai_summary = (
+                f"[AUTOMATED FLAG] Likely fabricated report (auth: {adjusted_auth:.0%}). "
+                f"Recommend investigating complainant under BNS §211. "
+                f"Original triage: {triage.ai_summary}"
+            )
+
+        # ── Stage 7: Jurisdiction detection ──────────────────────────────
+        try:
+            jur = jurisdiction_service.detect(
+                incident_location=report.incident_location,
+                incident_description=description,
+                complainant_address=report.complainant_address,
+            )
+            report.detected_state        = jur.detected_state
+            report.detected_district     = jur.detected_district
+            report.detected_jurisdiction = jur.jurisdiction_name
+            report.jurisdiction_confidence = jur.confidence
+            if jur.requires_forwarding:
+                report.fake_flags = list(set(
+                    (report.fake_flags or []) + [f"JURISDICTION: {jur.reason}"]
+                ))
+        except Exception as err:
+            logger.warning(f"[BG JURISDICTION] {report_id}: {err}")
+
+        # ── Stage 8: Reporter trust update ────────────────────────────────
+        try:
+            reporter_profile = (
+                db.query(__import__("models.db_models", fromlist=["ReporterProfile"]).ReporterProfile)
+                .filter_by(id=report.reporter_profile_id)
+                .first()
+            ) if report.reporter_profile_id else None
+            is_genuine = report.fake_recommendation == "GENUINE"
+            fir_will_be_generated = (
+                report.risk_level in ("HIGH", "MEDIUM")
+                and report.fake_recommendation != "REJECT"
+            )
+            new_trust = _trust_service.update_after_analysis(
+                db, reporter_profile,
+                is_genuine=is_genuine,
+                risk_level=report.risk_level,
+                fir_generated=fir_will_be_generated,
+            )
+            report.reporter_trust_score = new_trust
+        except Exception as err:
+            logger.warning(f"[BG TRUST] {report_id}: {err}")
 
         report.status = "TRIAGED"
         db.commit()
-        logger.info(f"[BG] Evidence processed for {report.case_number}")
+        logger.info(
+            f"[BG] Analysis complete for {report.case_number} — "
+            f"risk={report.risk_level} auth={adjusted_auth:.2f}"
+        )
 
-        # ── Step 5: Complaint Report PDF ─────────────────────────────────
+        # ── Stage 9: Complaint Report PDF ─────────────────────────────────
         fir_will_generate = (
             report.risk_level in ("HIGH", "MEDIUM")
             and report.fake_recommendation != "REJECT"
         )
-        if not fir_will_generate:
-            logger.info(f"[BG] Skipping FIR for {report.case_number} (risk={report.risk_level}, fake_rec={report.fake_recommendation})")
-            return
+        if fir_will_generate:
+            try:
+                fir_filename = f"CR_{report.case_number}.pdf"
+                fir_output   = FIR_PATH / fir_filename
+                evidence_list_for_fir = [
+                    {
+                        "original_filename": ev.original_filename,
+                        "file_type":         ev.file_type,
+                        "sha256_hash":       ev.sha256_hash,
+                        "ocr_confidence":    ev.ocr_confidence or 0,
+                        "uploaded_at":       ev.uploaded_at.isoformat() if ev.uploaded_at else "",
+                        "tamper_score":      ev.tamper_score or 0,
+                        "is_tampered":       ev.is_tampered or False,
+                    }
+                    for ev in evidence_files
+                ]
+                _fir_gen.generate(
+                    report_data={
+                        "case_number":            report.case_number,
+                        "complainant_name":        report.complainant_name,
+                        "complainant_phone":       report.complainant_phone,
+                        "complainant_email":       report.complainant_email,
+                        "complainant_address":     report.complainant_address,
+                        "incident_description":    report.incident_description,
+                        "incident_date":           report.incident_date,
+                        "incident_location":       report.incident_location,
+                        "risk_level":              report.risk_level,
+                        "risk_score":              report.risk_score,
+                        "crime_category":          report.crime_category,
+                        "crime_subcategory":       report.crime_subcategory,
+                        "ai_summary":              report.ai_summary,
+                        "entities":                report.entities,
+                        "bns_sections":            report.bns_sections,
+                        "authenticity_score":      report.authenticity_score,
+                        "fake_recommendation":     report.fake_recommendation,
+                        "fake_flags":              report.fake_flags,
+                        "content_hash":            report.content_hash,
+                        "forensics_tamper_score":  report.forensics_tamper_score,
+                        "forensics_flags":         report.forensics_flags,
+                        "reporter_trust_score":    report.reporter_trust_score,
+                        "evidence_files":          evidence_list_for_fir,
+                        "assigned_officer":        "Pending Assignment",
+                    },
+                    output_path=fir_output,
+                )
+                report.fir_path         = fir_filename
+                report.fir_generated_at = _dt.datetime.utcnow()
+                report.fir_hash         = _hash_service.hash_file(fir_output)
+                report.status           = "COMPLAINT_REGISTERED"
+                db.commit()
+                logger.info(f"[BG FIR] Generated: {fir_filename}")
+            except Exception as err:
+                logger.error(f"[BG FIR] {report_id}: {err}")
 
-        fir_filename = f"CR_{report.case_number}.pdf"
-        fir_output   = FIR_PATH / fir_filename
-
-        evidence_list_for_fir = [
-            {
-                "original_filename": ev.original_filename,
-                "file_type":         ev.file_type,
-                "sha256_hash":       ev.sha256_hash,
-                "ocr_confidence":    ev.ocr_confidence or 0,
-                "uploaded_at":       ev.uploaded_at.isoformat() if ev.uploaded_at else "",
-                "tamper_score":      ev.tamper_score or 0,
-                "is_tampered":       ev.is_tampered or False,
-            }
-            for ev in evidence_files
-        ]
-
-        _fir_gen.generate(
-            report_data={
-                "case_number":           report.case_number,
-                "complainant_name":      report.complainant_name,
-                "complainant_phone":     report.complainant_phone,
-                "complainant_email":     report.complainant_email,
-                "complainant_address":   report.complainant_address,
-                "incident_description":  report.incident_description,
-                "incident_date":         report.incident_date,
-                "incident_location":     report.incident_location,
-                "risk_level":            report.risk_level,
-                "risk_score":            report.risk_score,
-                "crime_category":        report.crime_category,
-                "crime_subcategory":     report.crime_subcategory,
-                "ai_summary":            report.ai_summary,
-                "entities":              report.entities,
-                "bns_sections":          report.bns_sections,
-                "authenticity_score":    report.authenticity_score,
-                "fake_recommendation":   report.fake_recommendation,
-                "fake_flags":            report.fake_flags,
-                "content_hash":          report.content_hash,
-                "forensics_tamper_score": report.forensics_tamper_score,
-                "forensics_flags":       report.forensics_flags,
-                "reporter_trust_score":  report.reporter_trust_score,
-                "evidence_files":        evidence_list_for_fir,
-                "assigned_officer":      "Pending Assignment",
-            },
-            output_path=fir_output,
-        )
-
-        report.fir_path          = fir_filename
-        report.fir_generated_at  = _dt.datetime.utcnow()
-        report.fir_hash          = _hash_service.hash_file(fir_output)
-        report.status            = "COMPLAINT_REGISTERED"
-        db.commit()
-        logger.info(f"[BG FIR] Complaint Report generated: {fir_filename}")
+        # ── Stage 10: Follow-up acknowledgement email ─────────────────────
+        if report.complainant_email:
+            try:
+                followup_service.send_acknowledgement(
+                    to_email=report.complainant_email,
+                    name=report.complainant_name,
+                    case_number=report.case_number,
+                    risk_level=report.risk_level or "LOW",
+                    crime_category=report.crime_category or "Cybercrime",
+                    ai_summary=report.ai_summary or "Your complaint has been recorded.",
+                    fir_generated=bool(report.fir_path),
+                    station_name=_cfg.station_name,
+                )
+            except Exception as err:
+                logger.warning(f"[BG EMAIL] {report_id}: {err}")
 
     except Exception as e:
-        logger.error(f"[BG] Processing failed for report {report_id}: {e}", exc_info=True)
+        logger.error(f"[BG PIPELINE] Failed for {report_id}: {e}", exc_info=True)
         try:
-            if report and report.status == "PROCESSING":
+            if report:
                 report.status = "TRIAGED"
                 db.commit()
         except Exception:
@@ -459,143 +590,15 @@ async def submit_report(
         db.add(ev)
         stored_evidence.append(ev)
 
-    # Content hash uses description only at this stage (OCR text added by background task)
-    combined_ocr = ""  # filled in background
-
-    # ── 6. Content hash (chain of custody + duplicate detection) ─────
+    # ── 5. Content hash (description only — OCR text added by background task) ──
     report.content_hash = _hash_service.hash_report_content(
-        description, combined_ocr, complainant_name
+        description, "", complainant_name
     )
 
-    # ── 7. Fake report detection ──────────────────────────────────────
-    fake_result = _fake_detector.analyze(
-        description=description,
-        evidence_text=combined_ocr,
-        content_hash=report.content_hash,
-        db=db,
-    )
-
-    # Apply reporter trust modifier
-    adjusted_auth_score = _trust_service.apply_trust_modifier(
-        fake_result.authenticity_score, trust_score
-    )
-
-    # Note: image tamper score is checked by the background task after forensics run.
-    # It will further adjust authenticity_score in the DB after analysis completes.
-
-    # Factor in frequency abuse
-    if is_freq_suspicious:
-        adjusted_auth_score = min(adjusted_auth_score, 0.40)
-        fake_result.flags.append(f"FREQUENCY ABUSE: {freq_reason}")
-
-    report.authenticity_score = adjusted_auth_score
-    report.is_flagged_fake = adjusted_auth_score < settings.fake_report_threshold
-    report.fake_flags = list(set(fake_result.flags))
-    report.fake_recommendation = fake_result.recommendation
-
-    # Override recommendation if score is very low
-    if adjusted_auth_score < 0.25:
-        report.fake_recommendation = "REJECT"
-    elif adjusted_auth_score < settings.fake_report_threshold:
-        if report.fake_recommendation == "GENUINE":
-            report.fake_recommendation = "REVIEW"
-
-    # ── 8. AI semantic triage ─────────────────────────────────────────
-    triage = _ai_triage.analyze(description, combined_ocr)
-    report.risk_level = triage.risk_level
-    report.risk_score = triage.risk_score
-    report.crime_category = triage.crime_category
-    report.crime_subcategory = triage.crime_subcategory
-    report.ai_summary = triage.ai_summary
-    report.entities = triage.entities
-    report.bns_sections = triage.bns_sections
-
-    # ── 8a. Cross-inform: fake score caps triage risk ─────────────────
-    # A report flagged as suspicious/fake should NEVER propagate as HIGH risk
-    # for the described crime — that would generate a FIR for a fictional incident.
-    # Only confirmed GENUINE reports (auth >= 0.65) can reach HIGH risk unimpeded.
-    if report.fake_recommendation in ("REVIEW", "REJECT") or report.is_flagged_fake:
-        if triage.risk_level == "HIGH" and adjusted_auth_score < 0.65:
-            report.risk_level = "MEDIUM"
-            report.risk_score = min(report.risk_score, 0.58)
-            report.fake_flags = list(set(
-                (report.fake_flags or []) +
-                ["RISK CAPPED: Authenticity score too low to confirm HIGH risk — downgraded to MEDIUM pending officer verification"]
-            ))
-            logger.info(
-                f"Risk capped MEDIUM for case={report.case_number} "
-                f"auth={adjusted_auth_score:.2f} fake_rec={report.fake_recommendation}"
-            )
-
-    # ── 8b. Escalate risk for confirmed fake reports ──────────────────
-    # Filing a false police complaint is itself an offence under BNS §211.
-    # Flagged-fake (REJECT) reports are elevated to HIGH risk so officers
-    # know to investigate the complainant — NOT the described crime.
-    if report.is_flagged_fake and report.fake_recommendation == "REJECT":
-        report.risk_level = "HIGH"
-        report.risk_score = max(report.risk_score, 0.80)
-        report.crime_subcategory = "False Complaint Filing"
-        report.bns_sections = [
-            "BNS Section 211 (Intentionally giving false information to public servant)",
-            "BNS Section 218 (Public servant framing incorrect record/writing)",
-            "IT Act Section 66D (Cheating by personation using computer resource)",
-        ]
-        report.ai_summary = (
-            f"[AUTOMATED FLAG] This submission has been assessed as a likely fabricated "
-            f"report (authenticity score: {adjusted_auth_score:.0%}). The described incident "
-            f"may not have occurred. Recommend investigating the complainant for potential "
-            f"false complaint filing under BNS §211. Original triage: {triage.ai_summary}"
-        )
-        logger.warning(
-            f"Fake report escalated to HIGH risk: case={report.case_number} "
-            f"auth={adjusted_auth_score:.2f}"
-        )
-
-    # ── 8c. Jurisdiction detection (Phase 2) ──────────────────────────
-    try:
-        jur = jurisdiction_service.detect(
-            incident_location=incident_location,
-            incident_description=description,
-            complainant_address=complainant_address,
-        )
-        report.detected_state = jur.detected_state
-        report.detected_district = jur.detected_district
-        report.detected_jurisdiction = jur.jurisdiction_name
-        report.jurisdiction_confidence = jur.confidence
-        if jur.requires_forwarding:
-            report.fake_flags = list(set(
-                (report.fake_flags or []) +
-                [f"JURISDICTION: {jur.reason}"]
-            ))
-            logger.info(
-                f"Case {report.case_number}: jurisdiction forwarding recommended "
-                f"→ {jur.detected_state} (conf={jur.confidence:.2f})"
-            )
-    except Exception as e:
-        logger.warning(f"Jurisdiction detection failed for {report.case_number}: {e}")
-
-    # ── 9. Update reporter trust score ────────────────────────────────
-    is_genuine = report.fake_recommendation == "GENUINE"
-    fir_will_be_generated = (
-        triage.risk_level in ("HIGH", "MEDIUM") and
-        report.fake_recommendation != "REJECT"
-    )
+    # ── 6. Record submission in trust service (fast DB write) ─────────
     _trust_service.record_submission(db, reporter_profile, report.id)
-    new_trust_score = _trust_service.update_after_analysis(
-        db, reporter_profile,
-        is_genuine=is_genuine,
-        risk_level=triage.risk_level,
-        fir_generated=fir_will_be_generated,
-    )
-    report.reporter_trust_score = new_trust_score
 
-    # ── 10. OCR + forensics + FIR generation (all in background) ────────────────
-    # Status starts as PROCESSING → background advances it to TRIAGED → COMPLAINT_REGISTERED.
-    # This keeps the HTTP response well under Render's 60 s proxy timeout.
-    report.status = "PROCESSING"
-    background_tasks.add_task(_process_evidence_and_fir_bg, report_id=report.id)
-
-    # ── 11. Audit log ─────────────────────────────────────────────────
+    # ── 7. Audit log ──────────────────────────────────────────────────
     db.add(AuditLog(
         id=str(uuid.uuid4()),
         report_id=report.id,
@@ -603,47 +606,43 @@ async def submit_report(
         actor="SYSTEM",
         ip_address=client_ip,
         details={
-            "risk_level": report.risk_level,
-            "authenticity_score": report.authenticity_score,
-            "fake_recommendation": report.fake_recommendation,
-            "complaint_report_generated": bool(report.fir_path),
-            "evidence_count": len(stored_evidence),
-            "tamper_score": report.forensics_tamper_score,
-            "reporter_trust_score": report.reporter_trust_score,
+            "status":          "PROCESSING",
+            "evidence_count":  len(stored_evidence),
+            "pipeline":        "async-background",
         }
     ))
 
     db.commit()
     db.refresh(report)
 
-    # ── 11b. Mark DigiLocker session as used (prevents session reuse) ────
+    # ── 8. Mark DigiLocker session as used (non-fatal) ────────────────
     if digilocker_session_token and digilocker_profile:
         try:
             from services.digilocker_service import DigiLockerService
             from config import settings as _s
-            _dl2 = DigiLockerService(
+            DigiLockerService(
                 client_id=getattr(_s, "digilocker_client_id", ""),
                 client_secret=getattr(_s, "digilocker_client_secret", ""),
                 redirect_uri=getattr(_s, "digilocker_redirect_uri", ""),
-            )
-            _dl2.mark_session_used(digilocker_session_token, db)
+            ).mark_session_used(digilocker_session_token, db)
         except Exception as e:
-            logger.warning(f"DigiLocker mark_used failed: {e}")  # Non-fatal
+            logger.warning(f"DigiLocker mark_used failed: {e}")
 
-    # ── 12. Follow-up acknowledgement email (Phase 2) ─────────────────
-    if complainant_email:
-        background_tasks.add_task(
-            followup_service.send_acknowledgement,
-            to_email=complainant_email,
-            name=complainant_name.strip(),
-            case_number=report.case_number,
-            risk_level=report.risk_level or "LOW",
-            crime_category=report.crime_category or "Cybercrime",
-            ai_summary=report.ai_summary or "Your complaint has been recorded and will be reviewed by an officer.",
-            fir_generated=bool(report.fir_path),
-            station_name=settings.station_name,
-        )
+    # ── 9. Fire full AI+forensics pipeline in background ─────────────
+    # The response is returned immediately with status=PROCESSING.
+    # The background task advances it: PROCESSING → TRIAGED → COMPLAINT_REGISTERED
+    background_tasks.add_task(
+        _process_everything_bg,
+        report_id=report.id,
+        is_freq_suspicious=is_freq_suspicious,
+        freq_reason=freq_reason or "",
+        trust_score=trust_score,
+    )
 
+    logger.info(
+        f"Submission accepted: case={report.case_number} "
+        f"evidence={len(stored_evidence)} IP={client_ip}"
+    )
     return ReportResponse.model_validate(report)
 
 
