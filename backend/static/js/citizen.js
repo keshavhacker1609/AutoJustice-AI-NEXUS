@@ -65,7 +65,7 @@ async function sendPhoneOTP() {
     if (input) input.readOnly = true;
     btn.style.display = 'none';
 
-    const d = document.getElementById('pd0');
+    const d = document.getElementById('p0');
     if (d) d.focus();
     showToast('OTP sent via SMS! Check your messages.', 'ok');
     _startCountdown('phoneResendTimer', 'phoneResendBtn', 60, 'phoneResendTimer_ref');
@@ -78,7 +78,7 @@ async function sendPhoneOTP() {
 }
 
 async function verifyPhoneOTP() {
-  const digits = ['pd0','pd1','pd2','pd3','pd4','pd5'].map(id => {
+  const digits = ['p0','p1','p2','p3','p4','p5'].map(id => {
     const el = document.getElementById(id);
     return el ? el.value.trim() : '';
   });
@@ -86,7 +86,7 @@ async function verifyPhoneOTP() {
 
   if (otp.length !== 6 || !/^\d{6}$/.test(otp)) {
     showToast('Please enter the complete 6-digit OTP.', 'err');
-    const d = document.getElementById('pd0');
+    const d = document.getElementById('p0');
     if (d) d.focus();
     return;
   }
@@ -153,11 +153,11 @@ async function resendPhoneOTP() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Failed to resend OTP');
 
-    ['pd0','pd1','pd2','pd3','pd4','pd5'].forEach(id => {
+    ['p0','p1','p2','p3','p4','p5'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
-    const d = document.getElementById('pd0');
+    const d = document.getElementById('p0');
     if (d) d.focus();
     showToast('New SMS OTP sent!', 'ok');
     _startCountdown('phoneResendTimer', 'phoneResendBtn', 60, 'phoneResendTimer_ref');
@@ -174,7 +174,7 @@ function resetPhoneOtpFlow() {
   if (entryRow) entryRow.style.display = 'none';
   const sendBtn = document.getElementById('sendPhoneOtpBtn');
   if (sendBtn) { sendBtn.style.display = ''; sendBtn.disabled = false; sendBtn.textContent = 'Send OTP'; }
-  ['pd0','pd1','pd2','pd3','pd4','pd5'].forEach(id => {
+  ['p0','p1','p2','p3','p4','p5'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
