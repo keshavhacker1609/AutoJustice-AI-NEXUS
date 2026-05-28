@@ -451,17 +451,49 @@ def _send_otp_email(to_email: str, otp: str) -> tuple[bool, str]:
 </td></tr></table>
 </body></html>"""
 
+    import httpx as _httpx
+
+    # ── Brevo HTTP API (primary — port 443, never blocked by Render) ───
+    # Render free tier blocks outbound SMTP ports (25/465/587). Use HTTP API.
+    if "brevo" in (settings.smtp_host or "").lower():
+        api_key = settings.smtp_password   # Store Brevo API key as SMTP_PASSWORD
+        sender_email = settings.smtp_from_email or settings.smtp_username
+        if not api_key:
+            logger.error("Brevo API key empty (SMTP_PASSWORD not set)")
+            return False, "Brevo API key not configured"
+        try:
+            logger.info(f"Brevo API: sending to {to_email} (key: {api_key[:8]}...)")
+            resp = _httpx.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={"api-key": api_key, "Content-Type": "application/json"},
+                json={
+                    "sender": {"name": "AutoJustice AI NEXUS", "email": sender_email},
+                    "to": [{"email": to_email}],
+                    "subject": f"AutoJustice AI — Your Verification OTP: {otp}",
+                    "htmlContent": html,
+                },
+                timeout=15.0,
+            )
+            logger.info(f"Brevo {resp.status_code}: {resp.text[:300]}")
+            if resp.status_code in (200, 201):
+                logger.info(f"Brevo: OTP sent to {to_email}")
+                return True, ""
+            err = resp.text[:200]
+            logger.error(f"Brevo FAILED {resp.status_code}: {err}")
+            return False, f"Brevo API error {resp.status_code}: {err}"
+        except Exception as exc:
+            logger.error(f"Brevo exception: {exc}")
+            return False, f"Brevo connection error: {exc}"
+
     # ── Resend HTTP API ────────────────────────────────────────────────
-    # NOTE: onboarding@resend.dev can ONLY send to the account owner's verified
-    # email on Resend's free plan (no custom domain). For any-recipient sending,
-    # use Brevo SMTP instead (smtp-relay.brevo.com:587).
+    # NOTE: onboarding@resend.dev only works for the Resend account owner's email
+    # on the free plan. Use Brevo (above) for any-recipient sending.
     if "resend" in (settings.smtp_host or "").lower():
         api_key = settings.smtp_password
         if not api_key:
             logger.error("Resend API key empty (SMTP_PASSWORD not set)")
             return False, "Resend API key not configured"
         try:
-            import httpx as _httpx
             logger.info(f"Resend API: {to_email} (key: {api_key[:8]}...)")
             resp = _httpx.post(
                 "https://api.resend.com/emails",
@@ -476,33 +508,29 @@ def _send_otp_email(to_email: str, otp: str) -> tuple[bool, str]:
             )
             logger.info(f"Resend {resp.status_code}: {resp.text[:300]}")
             if resp.status_code in (200, 201):
-                logger.info(f"Resend: OTP sent to {to_email}")
                 return True, ""
             err = resp.text[:200]
             logger.error(f"Resend FAILED {resp.status_code}: {err}")
             return False, f"Resend API error {resp.status_code}: {err}"
         except Exception as exc:
             logger.error(f"Resend exception: {exc}")
-            return False, f"Resend connection error: {exc}"
+            return False, f"Resend error: {exc}"
 
-    # ── SMTP (Brevo / Gmail / any provider) ───────────────────────────
-    # Brevo free: smtp-relay.brevo.com:587 — works for ANY recipient, 300/day
+    # ── SMTP fallback (only works if your host allows outbound port 587/465) ────
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = f"AutoJustice AI — Your Verification OTP: {otp}"
         msg["From"]    = settings.smtp_from_email
         msg["To"]      = to_email
         msg.attach(MIMEText(html, "html"))
-        logger.info(f"SMTP: connecting to {settings.smtp_host}:{settings.smtp_port} for {to_email}")
+        logger.info(f"SMTP: {settings.smtp_host}:{settings.smtp_port} → {to_email}")
         if int(settings.smtp_port) == 465:
             with smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=15) as s:
                 s.login(settings.smtp_username, settings.smtp_password)
                 s.sendmail(settings.smtp_from_email, to_email, msg.as_string())
         else:
             with smtplib.SMTP(settings.smtp_host, int(settings.smtp_port), timeout=15) as s:
-                s.ehlo()
-                s.starttls()
-                s.ehlo()
+                s.ehlo(); s.starttls(); s.ehlo()
                 s.login(settings.smtp_username, settings.smtp_password)
                 s.sendmail(settings.smtp_from_email, to_email, msg.as_string())
         logger.info(f"SMTP: OTP sent to {to_email}")
