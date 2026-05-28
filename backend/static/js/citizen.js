@@ -727,6 +727,20 @@ function setupFormSubmit() {
 
     const submitBtn = document.getElementById('submitBtn');
     submitBtn.disabled = true;
+    showLoading(true, 'Connecting to server...');
+
+    // Pre-warm: ping health endpoint to wake Render from sleep before heavy request
+    try {
+      const warmStart = Date.now();
+      await fetch('/api/health', { signal: AbortSignal.timeout(28000) });
+      const warmMs = Date.now() - warmStart;
+      if (warmMs > 3000) {
+        // Server was sleeping — give it a moment to fully initialise
+        showLoading(true, 'Server waking up, please wait...');
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    } catch (_) { /* ignore — proceed anyway */ }
+
     showLoading(true, 'Uploading evidence files...');
 
     const formData = new FormData();
@@ -893,6 +907,12 @@ document.addEventListener('DOMContentLoaded', () => {
   setupFormSubmit();
   loadLiveStats();
   setInterval(loadLiveStats, 30000);
+
+  // Keep-alive: ping server every 8 min so Render free tier doesn't sleep
+  // while the user is filling out the complaint form (takes 5-15 minutes)
+  setInterval(() => {
+    fetch('/api/health').catch(() => {});
+  }, 8 * 60 * 1000);
 
   // Initial check (both not verified)
   _checkBothVerified();

@@ -64,6 +64,78 @@ def _get_client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+# ─── Background: Complaint Report PDF Generation ────────────────────────────────
+
+def _generate_complaint_report_bg(report_id: str, case_number: str, evidence_list: list):
+    """
+    Generate the Complaint Report PDF in a background task so the HTTP response
+    returns quickly (< 30 s) even on Render free tier.
+    Called via BackgroundTasks — runs after the response is sent to the client.
+    """
+    from database import SessionLocal
+    from models.db_models import CrimeReport
+    from config import FIR_PATH
+    import datetime as _dt
+
+    db = SessionLocal()
+    try:
+        report = db.query(CrimeReport).filter(CrimeReport.id == report_id).first()
+        if not report:
+            logger.error(f"[BG FIR] Report {report_id} not found in DB")
+            return
+
+        fir_filename = f"CR_{case_number}.pdf"
+        fir_output = FIR_PATH / fir_filename
+
+        _fir_gen.generate(
+            report_data={
+                "case_number": report.case_number,
+                "complainant_name": report.complainant_name,
+                "complainant_phone": report.complainant_phone,
+                "complainant_email": report.complainant_email,
+                "complainant_address": report.complainant_address,
+                "incident_description": report.incident_description,
+                "incident_date": report.incident_date,
+                "incident_location": report.incident_location,
+                "risk_level": report.risk_level,
+                "risk_score": report.risk_score,
+                "crime_category": report.crime_category,
+                "crime_subcategory": report.crime_subcategory,
+                "ai_summary": report.ai_summary,
+                "entities": report.entities,
+                "bns_sections": report.bns_sections,
+                "authenticity_score": report.authenticity_score,
+                "fake_recommendation": report.fake_recommendation,
+                "fake_flags": report.fake_flags,
+                "content_hash": report.content_hash,
+                "forensics_tamper_score": report.forensics_tamper_score,
+                "forensics_flags": report.forensics_flags,
+                "reporter_trust_score": report.reporter_trust_score,
+                "evidence_files": evidence_list,
+                "assigned_officer": "Pending Assignment",
+            },
+            output_path=fir_output,
+        )
+
+        report.fir_path = fir_filename
+        report.fir_generated_at = _dt.datetime.utcnow()
+        report.fir_hash = _hash_service.hash_file(fir_output)
+        report.status = "COMPLAINT_REGISTERED"
+        db.commit()
+        logger.info(f"[BG FIR] Complaint Report generated: {fir_filename}")
+
+    except Exception as e:
+        logger.error(f"[BG FIR] Failed for {case_number}: {e}")
+        try:
+            if report:
+                report.status = "TRIAGED"
+                db.commit()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
 # ─── Submit Report ─────────────────────────────────────────────────────────────
 
 @router.post("/submit", response_model=ReportResponse)
@@ -468,65 +540,29 @@ async def submit_report(
     )
     report.reporter_trust_score = new_trust_score
 
-    # ── 10. Auto-generate FIR ─────────────────────────────────────────
+    # ── 10. Auto-generate Complaint Report PDF (background — keeps response fast) ─
+    # Move PDF generation to background so the HTTP response returns in <30s.
+    # The PDF is generated async; status updates from TRIAGED → COMPLAINT_REGISTERED.
+    report.status = "TRIAGED"
     if fir_will_be_generated:
-        try:
-            fir_filename = f"CR_{report.case_number}.pdf"
-            fir_output = FIR_PATH / fir_filename
-
-            evidence_list = [
-                {
-                    "original_filename": ev.original_filename,
-                    "file_type": ev.file_type,
-                    "sha256_hash": ev.sha256_hash,
-                    "ocr_confidence": ev.ocr_confidence or 0,
-                    "uploaded_at": ev.uploaded_at.isoformat() if ev.uploaded_at else "",
-                    "tamper_score": ev.tamper_score or 0,
-                    "is_tampered": ev.is_tampered or False,
-                }
-                for ev in stored_evidence
-            ]
-
-            _fir_gen.generate(
-                report_data={
-                    "case_number": report.case_number,
-                    "complainant_name": report.complainant_name,
-                    "complainant_phone": report.complainant_phone,
-                    "complainant_email": report.complainant_email,
-                    "complainant_address": report.complainant_address,
-                    "incident_description": report.incident_description,
-                    "incident_date": report.incident_date,
-                    "incident_location": report.incident_location,
-                    "risk_level": report.risk_level,
-                    "risk_score": report.risk_score,
-                    "crime_category": report.crime_category,
-                    "crime_subcategory": report.crime_subcategory,
-                    "ai_summary": report.ai_summary,
-                    "entities": report.entities,
-                    "bns_sections": report.bns_sections,
-                    "authenticity_score": report.authenticity_score,
-                    "fake_recommendation": report.fake_recommendation,
-                    "fake_flags": report.fake_flags,
-                    "content_hash": report.content_hash,
-                    "forensics_tamper_score": report.forensics_tamper_score,
-                    "forensics_flags": report.forensics_flags,
-                    "reporter_trust_score": report.reporter_trust_score,
-                    "evidence_files": evidence_list,
-                    "assigned_officer": "Pending Assignment",
-                },
-                output_path=fir_output,
-            )
-
-            report.fir_path = fir_filename
-            report.fir_generated_at = datetime.utcnow()
-            report.fir_hash = _hash_service.hash_file(fir_output)
-            report.status = "COMPLAINT_REGISTERED"
-
-        except Exception as e:
-            logger.error(f"FIR generation failed for {report.case_number}: {e}")
-            report.status = "TRIAGED"
-    else:
-        report.status = "TRIAGED"
+        evidence_list_bg = [
+            {
+                "original_filename": ev.original_filename,
+                "file_type": ev.file_type,
+                "sha256_hash": ev.sha256_hash,
+                "ocr_confidence": ev.ocr_confidence or 0,
+                "uploaded_at": ev.uploaded_at.isoformat() if ev.uploaded_at else "",
+                "tamper_score": ev.tamper_score or 0,
+                "is_tampered": ev.is_tampered or False,
+            }
+            for ev in stored_evidence
+        ]
+        background_tasks.add_task(
+            _generate_complaint_report_bg,
+            report_id=report.id,
+            case_number=report.case_number,
+            evidence_list=evidence_list_bg,
+        )
 
     # ── 11. Audit log ─────────────────────────────────────────────────
     db.add(AuditLog(
