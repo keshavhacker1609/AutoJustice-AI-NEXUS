@@ -397,7 +397,7 @@ def _send_otp_sms(to_phone: str, otp: str) -> tuple[bool, str]:
             logger.error(f"Twilio failed: {e}")
             return False, f"Twilio error: {e}"
 
-    return False, "No SMS provider configured. Set FAST2SMS_API_KEY in Render environment."
+    return False, "No SMS provider configured. Set FAST2SMS_API_KEY in HF Space secrets."
 
 
 def _send_otp_email(to_email: str, otp: str) -> tuple[bool, str]:
