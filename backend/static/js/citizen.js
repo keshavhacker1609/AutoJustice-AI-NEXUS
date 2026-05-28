@@ -708,6 +708,33 @@ function buildReview() {
 // FORM SUBMISSION
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/**
+ * Poll /api/health every 5 s until the server responds with 200.
+ * Returns true when ready, false after 90 s timeout.
+ * Handles Render free tier cold starts which take 30-60 s.
+ */
+async function _waitForServer() {
+  const MAX_MS  = 90000;   // 90 s total wait
+  const POLL_MS = 5000;    // try every 5 s
+  const start   = Date.now();
+  let elapsed   = 0;
+
+  while (elapsed < MAX_MS) {
+    try {
+      const res = await fetch('/api/health', { signal: AbortSignal.timeout(8000) });
+      if (res.ok) return true;   // server is up and healthy
+    } catch (_) {}
+
+    elapsed = Date.now() - start;
+    const secs = Math.round(elapsed / 1000);
+    if (elapsed < MAX_MS) {
+      setLoadingText(`Server waking up… ${secs}s (this can take up to 60s on first load)`);
+      await new Promise(r => setTimeout(r, POLL_MS));
+    }
+  }
+  return false;
+}
+
 function setupFormSubmit() {
   const form = document.getElementById('reportForm');
   if (!form) return;
@@ -729,18 +756,15 @@ function setupFormSubmit() {
     submitBtn.disabled = true;
     showLoading(true, 'Connecting to server...');
 
-    // Pre-warm: ping health endpoint to wake Render from sleep before heavy request
-    try {
-      showLoading(true, 'Connecting to server...');
-      const warmStart = Date.now();
-      await fetch('/api/health', { signal: AbortSignal.timeout(45000) });
-      const warmMs = Date.now() - warmStart;
-      if (warmMs > 4000) {
-        // Server was sleeping — wait longer for workers to fully initialise
-        showLoading(true, 'Server waking up, please wait...');
-        await new Promise(r => setTimeout(r, 8000));
-      }
-    } catch (_) { /* ignore — proceed anyway */ }
+    // Pre-warm: keep pinging until server is ready (handles Render's 30-60s cold start)
+    showLoading(true, 'Connecting to server...');
+    const serverReady = await _waitForServer();
+    if (!serverReady) {
+      showLoading(false);
+      submitBtn.disabled = false;
+      showToast('Server is unavailable right now. Please try again in 2 minutes.', 'err');
+      return;
+    }
 
     showLoading(true, 'Uploading your complaint...');
 
@@ -777,7 +801,7 @@ function setupFormSubmit() {
       try {
         if (attempt > 1) {
           showLoading(true, `Server starting up… retrying (${attempt}/${MAX_RETRIES})`);
-          await new Promise(r => setTimeout(r, 18000)); // wait 18 s before retry
+          await new Promise(r => setTimeout(r, 30000)); // wait 30 s before retry
         }
 
         const response = await fetch('/api/reports/submit', { method: 'POST', body: formData });
