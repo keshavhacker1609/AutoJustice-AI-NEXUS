@@ -340,9 +340,9 @@ function _checkBothVerified() {
   const phoneBadge = document.getElementById('dv-badge-phone');
   const emailBadge = document.getElementById('dv-badge-email');
   if (phoneBadge) {
-    phoneBadge.textContent = phoneOk ? '✅ Verified' : 'REQUIRED';
-    phoneBadge.style.background = phoneOk ? '#dcfce7' : '#fee2e2';
-    phoneBadge.style.color = phoneOk ? '#166534' : '#991b1b';
+    phoneBadge.textContent = phoneOk ? '✅ Verified' : 'OPTIONAL';
+    phoneBadge.style.background = phoneOk ? '#dcfce7' : '#fef9c3';
+    phoneBadge.style.color = phoneOk ? '#166534' : '#854d0e';
   }
   if (emailBadge) {
     emailBadge.textContent = emailOk ? '✅ Verified' : 'REQUIRED';
@@ -352,17 +352,20 @@ function _checkBothVerified() {
 
   const btn = document.getElementById('dv-proceed-btn');
   if (btn) {
-    btn.disabled = !(phoneOk && emailOk);
-    if (phoneOk && emailOk) {
-      btn.textContent = '✅ Both Verified — Continue to Complaint Form →';
+    // Only email OTP is required; phone OTP is optional
+    btn.disabled = !emailOk;
+    if (emailOk) {
+      btn.textContent = phoneOk
+        ? '✅ Both Verified — Continue to Complaint Form →'
+        : '✅ Email Verified — Continue to Complaint Form →';
       btn.style.background = '#16a34a';
     }
   }
 }
 
 function proceedWithBothVerified() {
-  if (!phoneOtpToken || !emailOtpToken) {
-    showToast('Please complete both phone and email verification first.', 'err');
+  if (!emailOtpToken) {
+    showToast('Email verification is required to proceed.', 'err');
     return;
   }
 
@@ -742,11 +745,7 @@ function setupFormSubmit() {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    // Double-check both OTPs are present
-    if (!phoneOtpToken) {
-      showToast('Mobile number verification is required.', 'err');
-      return;
-    }
+    // Email OTP is required; phone OTP is optional
     if (!emailOtpToken) {
       showToast('Email verification is required.', 'err');
       return;
