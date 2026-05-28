@@ -92,6 +92,7 @@ def _process_everything_bg(
       9.  Complaint Report PDF generation
      10.  Follow-up acknowledgement email
     """
+    import gc
     from database import SessionLocal
     from models.db_models import Report, EvidenceFile as _EvidenceFile
     from config import (
@@ -182,6 +183,7 @@ def _process_everything_bg(
                     logger.error(f"[BG VIDEO] {ev.original_filename}: {err}")
 
         db.commit()   # persist per-file OCR + forensics data
+        gc.collect()  # release PIL/numpy objects from OCR + forensics
 
         combined_ocr = " ".join(all_ocr_text)
         if combined_ocr:

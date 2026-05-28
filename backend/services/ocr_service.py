@@ -124,16 +124,16 @@ class OCRService:
             # ── Cap large images to prevent OOM on Render free tier (512 MB RAM) ──
             # High-res phone photos (4000×3000) use 50+ MB during PIL processing.
             # Tesseract reads text fine at ≤1600px — no accuracy loss for typical evidence.
-            MAX_OCR_DIM = 1600
+            MAX_OCR_DIM = 1000  # Render free tier 512 MB — keep PIL memory low
             w, h = img.size
             if max(w, h) > MAX_OCR_DIM:
                 img.thumbnail((MAX_OCR_DIM, MAX_OCR_DIM), Image.LANCZOS)
                 w, h = img.size
 
-            # Step 1 — upscale tiny images
-            if min(w, h) < 1000:
-                scale = max(2.0, 1500 / min(w, h))
-                new_size = (int(w * scale), int(h * scale))
+            # Step 1 — upscale tiny images (cap scale so we don't exceed the limit)
+            if min(w, h) < 600:
+                scale = min(2.0, 900 / max(min(w, h), 1))
+                new_size = (min(int(w * scale), MAX_OCR_DIM), min(int(h * scale), MAX_OCR_DIM))
                 img = img.resize(new_size, Image.LANCZOS)
 
             # Step 2 — greyscale

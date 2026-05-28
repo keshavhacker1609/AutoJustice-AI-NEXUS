@@ -731,17 +731,18 @@ function setupFormSubmit() {
 
     // Pre-warm: ping health endpoint to wake Render from sleep before heavy request
     try {
+      showLoading(true, 'Connecting to server...');
       const warmStart = Date.now();
-      await fetch('/api/health', { signal: AbortSignal.timeout(28000) });
+      await fetch('/api/health', { signal: AbortSignal.timeout(45000) });
       const warmMs = Date.now() - warmStart;
-      if (warmMs > 3000) {
-        // Server was sleeping — give it a moment to fully initialise
+      if (warmMs > 4000) {
+        // Server was sleeping — wait longer for workers to fully initialise
         showLoading(true, 'Server waking up, please wait...');
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 8000));
       }
     } catch (_) { /* ignore — proceed anyway */ }
 
-    showLoading(true, 'Uploading evidence files...');
+    showLoading(true, 'Uploading your complaint...');
 
     const formData = new FormData();
 
@@ -768,30 +769,64 @@ function setupFormSubmit() {
     ];
     loadingSteps.forEach(([delay, msg]) => setTimeout(() => setLoadingText(msg), delay));
 
-    try {
-      const response = await fetch('/api/reports/submit', { method: 'POST', body: formData });
-      if (!response.ok) {
-        // Safely parse error — server may return HTML (502/504) or empty body
-        let detail = `Server error (${response.status}). Please try again.`;
-        try {
-          const text = await response.text();
-          if (text && text.trim().startsWith('{')) {
-            const errJson = JSON.parse(text);
-            detail = errJson.detail || detail;
-          } else if (response.status === 504 || response.status === 502) {
-            detail = 'The AI analysis timed out. Please try again (the server may have been sleeping).';
-          }
-        } catch (_) {}
-        throw new Error(detail);
+    // Submit with auto-retry — if server is starting up (503/502) retry up to 3×
+    const MAX_RETRIES = 3;
+    let lastErr = null;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        if (attempt > 1) {
+          showLoading(true, `Server starting up… retrying (${attempt}/${MAX_RETRIES})`);
+          await new Promise(r => setTimeout(r, 18000)); // wait 18 s before retry
+        }
+
+        const response = await fetch('/api/reports/submit', { method: 'POST', body: formData });
+
+        if (response.status === 503 || response.status === 502) {
+          // Server not ready — retry
+          lastErr = new Error(`Server not ready (${response.status}). Retrying…`);
+          continue;
+        }
+
+        if (!response.ok) {
+          // Real error — parse and show immediately, no retry
+          let detail = `Server error (${response.status}). Please try again.`;
+          try {
+            const text = await response.text();
+            if (text && text.trim().startsWith('{')) {
+              const errJson = JSON.parse(text);
+              detail = errJson.detail || detail;
+            }
+          } catch (_) {}
+          throw new Error(detail);
+        }
+
+        const data = await response.json();
+        showLoading(false);
+        displayResult(data);
+        submittedReportId = data.id;
+        lastErr = null;
+        break; // success
+
+      } catch (err) {
+        if (err.message && err.message.includes('Retrying')) {
+          lastErr = err;
+          continue;
+        }
+        // Non-retriable error
+        showLoading(false);
+        submitBtn.disabled = false;
+        showToast('Submission failed: ' + err.message, 'err');
+        lastErr = null;
+        break;
       }
-      const data = await response.json();
-      showLoading(false);
-      displayResult(data);
-      submittedReportId = data.id;
-    } catch (err) {
+    }
+
+    if (lastErr) {
+      // All retries exhausted
       showLoading(false);
       submitBtn.disabled = false;
-      showToast('Submission failed: ' + err.message, 'err');
+      showToast('Server is temporarily unavailable. Please wait 1 minute and try again.', 'err');
     }
   });
 }
