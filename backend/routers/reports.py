@@ -246,18 +246,12 @@ def _process_everything_bg(
         report.crime_subcategory = triage.crime_subcategory
         report.ai_summary       = triage.ai_summary
         report.entities         = triage.entities
-        report.bns_sections     = triage.bns_sections
-
-        # ── Stage 6: Risk capping / fake escalation ───────────────────────
-        if report.fake_recommendation in ("REVIEW", "REJECT") or report.is_flagged_fake:
-            if triage.risk_level == "HIGH" and adjusted_auth < 0.65:
-                report.risk_level = "MEDIUM"
-                report.risk_score = min(report.risk_score, 0.58)
-                report.fake_flags = list(set(
-                    (report.fake_flags or []) +
-                    ["RISK CAPPED: Authenticity too low — downgraded to MEDIUM"]
-                ))
-        if report.is_flagged_fake and report.fake_recommendation == "REJECT":
+        # ── Stage 6: Legal section assignment — authenticity-gated ──────────
+        # GENUINE (auth >= 0.75): assign full legal sections
+        # REVIEW  (auth 0.50–0.74): withhold sections — pending officer verification
+        # REJECT  (auth < 0.50 or flagged): replace with false-complaint sections
+        if report.fake_recommendation == "REJECT" or report.is_flagged_fake:
+            # Confirmed fake — map false complaint laws instead
             report.risk_level    = "HIGH"
             report.risk_score    = max(report.risk_score, 0.80)
             report.crime_subcategory = "False Complaint Filing"
@@ -271,6 +265,26 @@ def _process_everything_bg(
                 f"Recommend investigating complainant under BNS §211. "
                 f"Original triage: {triage.ai_summary}"
             )
+        elif report.fake_recommendation == "REVIEW" or adjusted_auth < 0.75:
+            # Borderline authenticity — withhold legal sections until officer verifies
+            report.bns_sections = [
+                "⚠️ Legal sections withheld — authenticity score below threshold. "
+                "Officer verification required before legal mapping."
+            ]
+            report.fake_flags = list(set(
+                (report.fake_flags or []) +
+                [f"LEGAL MAPPING WITHHELD: Authenticity {adjusted_auth:.0%} below 75% threshold"]
+            ))
+            if triage.risk_level == "HIGH" and adjusted_auth < 0.65:
+                report.risk_level = "MEDIUM"
+                report.risk_score = min(report.risk_score, 0.58)
+                report.fake_flags = list(set(
+                    (report.fake_flags or []) +
+                    ["RISK CAPPED: Authenticity too low — downgraded to MEDIUM"]
+                ))
+        else:
+            # Genuine (auth >= 0.75) — assign full legal sections
+            report.bns_sections = triage.bns_sections
 
         # ── Stage 7: Jurisdiction detection ──────────────────────────────
         try:
