@@ -757,8 +757,18 @@ function setupFormSubmit() {
     try {
       const response = await fetch('/api/reports/submit', { method: 'POST', body: formData });
       if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.detail || 'Submission failed.');
+        // Safely parse error — server may return HTML (502/504) or empty body
+        let detail = `Server error (${response.status}). Please try again.`;
+        try {
+          const text = await response.text();
+          if (text && text.trim().startsWith('{')) {
+            const errJson = JSON.parse(text);
+            detail = errJson.detail || detail;
+          } else if (response.status === 504 || response.status === 502) {
+            detail = 'The AI analysis timed out. Please try again (the server may have been sleeping).';
+          }
+        } catch (_) {}
+        throw new Error(detail);
       }
       const data = await response.json();
       showLoading(false);
