@@ -76,19 +76,19 @@ services:
       - key: RATE_LIMIT_SUBMISSIONS_PER_HOUR
         value: "5"
 
-      # ── SMTP Email (Resend — works from any cloud IP) ─────────────────────────
+      # ── SMTP Email (Brevo — free 300/day, any recipient, no custom domain needed) ─
       - key: SMTP_ENABLED
         value: "true"
       - key: SMTP_HOST
-        value: smtp.resend.com
+        value: smtp-relay.brevo.com
       - key: SMTP_PORT
-        value: "465"
+        value: "587"
       - key: SMTP_USERNAME
-        value: resend
+        sync: false                  # SET MANUALLY: your Brevo login email
       - key: SMTP_PASSWORD
-        sync: false                  # SET MANUALLY: your Resend API key (re_xxx...)
+        sync: false                  # SET MANUALLY: Brevo SMTP key (Account > SMTP & API > Generate SMTP Key)
       - key: SMTP_FROM_EMAIL
-        value: onboarding@resend.dev
+        sync: false                  # SET MANUALLY: same as SMTP_USERNAME
 
       # ── SMS OTP (Fast2SMS — works without DLT registration in India) ──────────
       - key: SMS_ENABLED

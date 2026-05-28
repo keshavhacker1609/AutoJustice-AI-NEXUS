@@ -323,126 +323,97 @@ class ValidateSessionRequest(_BM):
 
 # ─── SMS OTP — Phase 2 ────────────────────────────────────────────────────────
 
-def _send_otp_sms(to_phone: str, otp: str) -> bool:
+def _send_otp_sms(to_phone: str, otp: str) -> tuple[bool, str]:
     """
-    Send OTP via SMS. Supports Twilio (international) and Fast2SMS (India).
-    Returns True if sent successfully, False if SMS not configured or failed.
-
-    To enable: set SMS_ENABLED=true in .env, choose SMS_PROVIDER=twilio|fast2sms,
-    and provide the corresponding API credentials.
+    Send OTP via SMS. Returns (success, error_detail).
+    Supports Fast2SMS → 2Factor.in fallback (both India, no DLT).
     """
     if not settings.sms_enabled:
         logger.info(f"[DEV — SMS disabled] OTP for {to_phone}: {otp}")
-        return False
+        return False, "SMS_DISABLED"
 
-    message_body = (
-        f"AutoJustice AI NEXUS: Your OTP is {otp}. "
-        f"Valid for 5 minutes. Do not share with anyone."
-    )
+    import httpx as _httpx
 
-    # ── Twilio ────────────────────────────────────────────────────────
-    if settings.sms_provider == "twilio":
-        if not (settings.twilio_account_sid and settings.twilio_auth_token and settings.twilio_from_number):
-            logger.warning("Twilio SMS: credentials not configured (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER)")
-            return False
+    digits = re.sub(r'\D', '', to_phone)
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
+    if not re.match(r'^[6-9]\d{9}$', digits):
+        return False, f"Invalid phone number format: {to_phone}"
+
+    # ── Fast2SMS (primary — India OTP route, no DLT) ──────────────────
+    if settings.fast2sms_api_key:
         try:
-            from twilio.rest import Client as TwilioClient
-            client = TwilioClient(settings.twilio_account_sid, settings.twilio_auth_token)
-            client.messages.create(
-                body=message_body,
-                from_=settings.twilio_from_number,
-                to=to_phone,
-            )
-            logger.info(f"Twilio SMS sent to {to_phone[:6]}****")
-            return True
-        except ImportError:
-            logger.warning("twilio package not installed. Run: pip install twilio")
-            return False
-        except Exception as e:
-            logger.error(f"Twilio SMS failed for {to_phone[:6]}****: {e}")
-            return False
-
-    # ── 2Factor.in (India — instant OTP, no website verification needed) ────────
-    elif settings.sms_provider == "2factor":
-        api_key = getattr(settings, "twofactor_api_key", "") or settings.fast2sms_api_key
-        if not api_key:
-            logger.warning("2Factor: API key not configured (TWOFACTOR_API_KEY)")
-            return False
-        try:
-            import httpx as _httpx
-            digits = re.sub(r'\D', '', to_phone)
-            if len(digits) == 12 and digits.startswith("91"):
-                digits = digits[2:]
-            if len(digits) != 10:
-                logger.warning(f"2Factor: invalid phone format {to_phone}")
-                return False
-
-            # AUTOGEN forces SMS text delivery (avoids voice call fallback)
-            url = f"https://2factor.in/API/V1/{api_key}/SMS/{digits}/{otp}/AUTOGEN"
-            with _httpx.Client(timeout=12.0) as _client:
-                resp = _client.get(url)
-
-            logger.info(f"2Factor HTTP {resp.status_code}: {resp.text[:200]}")
-            result = resp.json()
-
-            if result.get("Status") == "Success":
-                logger.info(f"2Factor OTP sent to {digits[:4]}****{digits[-2:]}")
-                return True
-            else:
-                logger.error(f"2Factor error: {result.get('Details', result)}")
-                return False
-        except Exception as e:
-            logger.error(f"2Factor send failed for {to_phone}: {e}")
-            return False
-
-    # ── Fast2SMS (India) ──────────────────────────────────────────────
-    elif settings.sms_provider == "fast2sms":
-        if not settings.fast2sms_api_key:
-            logger.warning("Fast2SMS: API key not configured (FAST2SMS_API_KEY not set in environment)")
-            return False
-        try:
-            import httpx as _httpx
-            digits = re.sub(r'\D', '', to_phone)
-            if len(digits) == 12 and digits.startswith("91"):
-                digits = digits[2:]
-            if len(digits) != 10:
-                logger.warning(f"Fast2SMS: invalid phone format '{to_phone}' → digits='{digits}'")
-                return False
-
-            logger.info(f"Fast2SMS: sending OTP to {digits[:4]}****{digits[-2:]} (key prefix: {settings.fast2sms_api_key[:8]}...)")
+            logger.info(f"Fast2SMS: sending to {digits[:4]}****{digits[-2:]} (key: {settings.fast2sms_api_key[:8]}...)")
             with _httpx.Client(timeout=12.0) as _client:
                 resp = _client.post(
                     "https://www.fast2sms.com/dev/bulkV2",
                     data={"route": "otp", "variables_values": otp, "flash": "0", "numbers": digits},
                     headers={"authorization": settings.fast2sms_api_key, "Cache-Control": "no-cache"},
                 )
-            logger.info(f"Fast2SMS HTTP {resp.status_code}: {resp.text[:400]}")
+            logger.info(f"Fast2SMS {resp.status_code}: {resp.text[:400]}")
             result = resp.json()
             if result.get("return") is True:
-                logger.info(f"Fast2SMS OTP sent successfully to {digits[:4]}****{digits[-2:]}")
-                return True
-            else:
-                logger.error(f"Fast2SMS error response: {result}")
-                return False
+                logger.info(f"Fast2SMS OTP sent to {digits[:4]}****{digits[-2:]}")
+                return True, ""
+            err = str(result.get("message", result))
+            logger.error(f"Fast2SMS rejected: {err}")
+            # Fall through to 2Factor fallback
         except Exception as e:
-            logger.error(f"Fast2SMS send failed for {to_phone}: {e}")
-            return False
+            logger.error(f"Fast2SMS exception: {e}")
 
-    logger.warning(f"Unknown SMS provider: {settings.sms_provider}")
-    return False
+    # ── 2Factor.in fallback (India — TRANSACTIONAL OTP, no DLT) ──────
+    twofactor_key = getattr(settings, "twofactor_api_key", "")
+    if twofactor_key:
+        try:
+            logger.info(f"2Factor fallback: sending to {digits[:4]}****{digits[-2:]}")
+            # TRANSACTIONAL route: sends text OTP without DLT registration
+            url = f"https://2factor.in/API/V1/{twofactor_key}/SMS/{digits}/{otp}/AUTOGEN"
+            with _httpx.Client(timeout=12.0) as _client:
+                resp = _client.get(url)
+            logger.info(f"2Factor {resp.status_code}: {resp.text[:300]}")
+            result = resp.json()
+            if result.get("Status") == "Success":
+                logger.info(f"2Factor OTP sent to {digits[:4]}****{digits[-2:]}")
+                return True, ""
+            err = str(result.get("Details", result))
+            logger.error(f"2Factor rejected: {err}")
+            return False, f"SMS failed (Fast2SMS + 2Factor both rejected). Details: {err}"
+        except Exception as e:
+            logger.error(f"2Factor exception: {e}")
+            return False, f"SMS service error: {e}"
+
+    # ── Twilio (international fallback) ──────────────────────────────
+    if settings.sms_provider == "twilio":
+        if not (settings.twilio_account_sid and settings.twilio_auth_token and settings.twilio_from_number):
+            return False, "Twilio credentials not configured"
+        try:
+            from twilio.rest import Client as TwilioClient
+            msg_body = f"AutoJustice AI NEXUS: Your OTP is {otp}. Valid 5 min. Do not share."
+            client = TwilioClient(settings.twilio_account_sid, settings.twilio_auth_token)
+            client.messages.create(body=msg_body, from_=settings.twilio_from_number, to=f"+91{digits}")
+            logger.info(f"Twilio SMS sent to {digits[:4]}****")
+            return True, ""
+        except Exception as e:
+            logger.error(f"Twilio failed: {e}")
+            return False, f"Twilio error: {e}"
+
+    return False, "No SMS provider configured. Set FAST2SMS_API_KEY in Render environment."
 
 
-def _send_otp_email(to_email: str, otp: str) -> bool:
+def _send_otp_email(to_email: str, otp: str) -> tuple[bool, str]:
     """
-    Send OTP email via Resend HTTP API (preferred) with SMTP fallback.
-    Resend HTTP API works for ANY recipient email — no domain verification needed.
+    Send OTP email. Returns (success, error_detail).
+    - If SMTP_HOST contains 'resend': uses Resend HTTP API
+    - Otherwise: uses SMTP (Brevo smtp-relay.brevo.com:587 recommended)
+    NOTE: Resend free plan restricts 'onboarding@resend.dev' to sending only
+    to the account owner's email. For unrestricted sending, use Brevo SMTP.
     """
     if not settings.smtp_enabled:
         logger.info(f"[DEV — SMTP disabled] OTP for {to_email}: {otp}")
-        return False
+        return False, "SMTP_DISABLED"
     if not settings.smtp_username:
         logger.warning("Email: SMTP_USERNAME not configured")
-        return False
+        return False, "SMTP_USERNAME not set"
 
     html = f"""
 <!DOCTYPE html><html><body style="margin:0;padding:0;background:#f0f4f8;font-family:'Segoe UI',Arial,sans-serif">
@@ -480,22 +451,21 @@ def _send_otp_email(to_email: str, otp: str) -> bool:
 </td></tr></table>
 </body></html>"""
 
-    # ── Resend HTTP API (works for any recipient, no domain needed) ───────────
-    # Detected when SMTP_HOST is smtp.resend.com — use HTTP API instead of SMTP
+    # ── Resend HTTP API ────────────────────────────────────────────────
+    # NOTE: onboarding@resend.dev can ONLY send to the account owner's verified
+    # email on Resend's free plan (no custom domain). For any-recipient sending,
+    # use Brevo SMTP instead (smtp-relay.brevo.com:587).
     if "resend" in (settings.smtp_host or "").lower():
-        api_key = settings.smtp_password  # Resend API key stored as SMTP_PASSWORD
+        api_key = settings.smtp_password
         if not api_key:
-            logger.error("Resend API key is empty (SMTP_PASSWORD not set in environment)")
-            return False
+            logger.error("Resend API key empty (SMTP_PASSWORD not set)")
+            return False, "Resend API key not configured"
         try:
             import httpx as _httpx
-            logger.info(f"Resend API: sending OTP email to {to_email} (key prefix: {api_key[:8]}...)")
+            logger.info(f"Resend API: {to_email} (key: {api_key[:8]}...)")
             resp = _httpx.post(
                 "https://api.resend.com/emails",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
                     "from": "AutoJustice AI NEXUS <onboarding@resend.dev>",
                     "to": [to_email],
@@ -504,40 +474,42 @@ def _send_otp_email(to_email: str, otp: str) -> bool:
                 },
                 timeout=15.0,
             )
-            logger.info(f"Resend API response: {resp.status_code} — {resp.text[:200]}")
+            logger.info(f"Resend {resp.status_code}: {resp.text[:300]}")
             if resp.status_code in (200, 201):
-                logger.info(f"Resend API: OTP email sent successfully to {to_email}")
-                return True
-            else:
-                logger.error(f"Resend API FAILED {resp.status_code}: {resp.text[:400]}")
-                return False   # Don't fall through — if Resend key is set, SMTP will fail too
+                logger.info(f"Resend: OTP sent to {to_email}")
+                return True, ""
+            err = resp.text[:200]
+            logger.error(f"Resend FAILED {resp.status_code}: {err}")
+            return False, f"Resend API error {resp.status_code}: {err}"
         except Exception as exc:
-            logger.error(f"Resend HTTP API exception: {exc}")
-            return False
+            logger.error(f"Resend exception: {exc}")
+            return False, f"Resend connection error: {exc}"
 
-    # ── SMTP fallback (Gmail / other providers) ───────────────────────────────
+    # ── SMTP (Brevo / Gmail / any provider) ───────────────────────────
+    # Brevo free: smtp-relay.brevo.com:587 — works for ANY recipient, 300/day
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = f"AutoJustice AI — Your Verification OTP: {otp}"
         msg["From"]    = settings.smtp_from_email
         msg["To"]      = to_email
         msg.attach(MIMEText(html, "html"))
-        # Port 465 = implicit SSL (SMTP_SSL); Port 587 = STARTTLS upgrade
+        logger.info(f"SMTP: connecting to {settings.smtp_host}:{settings.smtp_port} for {to_email}")
         if int(settings.smtp_port) == 465:
-            with smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=10) as s:
+            with smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=15) as s:
                 s.login(settings.smtp_username, settings.smtp_password)
                 s.sendmail(settings.smtp_from_email, to_email, msg.as_string())
         else:
-            with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10) as s:
+            with smtplib.SMTP(settings.smtp_host, int(settings.smtp_port), timeout=15) as s:
+                s.ehlo()
                 s.starttls()
+                s.ehlo()
                 s.login(settings.smtp_username, settings.smtp_password)
                 s.sendmail(settings.smtp_from_email, to_email, msg.as_string())
-        logger.info(f"SMTP: OTP email sent to {to_email}")
-        return True
+        logger.info(f"SMTP: OTP sent to {to_email}")
+        return True, ""
     except Exception as exc:
-        logger.error(f"SMTP send failed for {to_email}: {exc}")
-        logger.info(f"[FALLBACK] OTP for {to_email}: {otp}")
-        return False
+        logger.error(f"SMTP failed for {to_email}: {exc}")
+        return False, f"SMTP error: {exc}"
 
 
 @router.post("/send-otp")
@@ -583,37 +555,29 @@ def send_otp(body: SendOTPRequest):
     }
 
     if use_sms:
-        sent = _send_otp_sms(identifier, otp)
+        sent, err_detail = _send_otp_sms(identifier, otp)
         masked = identifier[:3] + "****" + identifier[-2:] if len(identifier) >= 6 else "****"
         if not sent:
-            # Remove the stored OTP so user can retry without waiting
             _otp_store.pop(identifier, None)
-            if not settings.sms_enabled:
-                raise HTTPException(503, "SMS service is not enabled. Please use Email OTP instead.")
-            if not settings.fast2sms_api_key and settings.sms_provider == "fast2sms":
-                raise HTTPException(503, "SMS not configured (missing FAST2SMS_API_KEY). Please use Email OTP instead.")
-            raise HTTPException(503, "SMS delivery failed. Please check your mobile number and try again, or use Email OTP instead.")
+            if err_detail == "SMS_DISABLED":
+                raise HTTPException(503, "SMS service is disabled. Please use Email OTP instead.")
+            raise HTTPException(503, f"SMS delivery failed: {err_detail}. Please use Email OTP instead.")
         return {
             "sent": True,
             "channel": "sms",
-            "sms_used": True,
             "message": f"OTP sent to {masked} via SMS.",
         }
     else:
-        sent = _send_otp_email(identifier, otp)
+        sent, err_detail = _send_otp_email(identifier, otp)
         masked = identifier[:2] + "***@" + identifier.split("@")[1]
         if not sent:
-            # Remove the stored OTP so user can retry without waiting
             _otp_store.pop(identifier, None)
             if not settings.smtp_enabled:
-                raise HTTPException(503, "Email service is not enabled on this server.")
-            if not settings.smtp_password:
-                raise HTTPException(503, "Email not configured (missing SMTP_PASSWORD / Resend API key). Contact admin.")
-            raise HTTPException(503, "Email delivery failed. Please check your email address and try again.")
+                raise HTTPException(503, "Email service is disabled on this server.")
+            raise HTTPException(503, f"Email delivery failed: {err_detail}")
         return {
             "sent": True,
             "channel": "email",
-            "smtp_used": True,
             "message": f"OTP sent to {masked}. Check your inbox and spam folder.",
         }
 
