@@ -64,70 +64,207 @@ def _get_client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-# ─── Background: Complaint Report PDF Generation ────────────────────────────────
+# ─── Background: Evidence Processing + FIR Generation ───────────────────────────
+#
+# All image-heavy work (OCR, ELA forensics) runs here so the HTTP response
+# returns in ~10-15 s (just AI triage) and never hits Render's 60 s proxy limit.
+#
 
-def _generate_complaint_report_bg(report_id: str, case_number: str, evidence_list: list):
+def _process_evidence_and_fir_bg(report_id: str):
     """
-    Generate the Complaint Report PDF in a background task so the HTTP response
-    returns quickly (< 30 s) even on Render free tier.
-    Called via BackgroundTasks — runs after the response is sent to the client.
+    Background task — runs after the HTTP response is already sent.
+    Steps:
+      1. OCR every uploaded evidence file
+      2. Image forensics (ELA tamper detection) on every image
+      3. Video forensics on every video
+      4. Re-adjust authenticity score based on tamper findings
+      5. Generate Complaint Report PDF (for HIGH/MEDIUM genuine reports)
+      6. Advance report status PROCESSING → TRIAGED → COMPLAINT_REGISTERED
     """
     from database import SessionLocal
-    from models.db_models import CrimeReport
-    from config import FIR_PATH
+    from models.db_models import Report, EvidenceFile as _EvidenceFile
+    from config import FIR_PATH, UPLOAD_PATH, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, settings as _cfg
     import datetime as _dt
 
     db = SessionLocal()
+    report = None
     try:
-        report = db.query(CrimeReport).filter(CrimeReport.id == report_id).first()
+        report = db.query(Report).filter(Report.id == report_id).first()
         if not report:
-            logger.error(f"[BG FIR] Report {report_id} not found in DB")
+            logger.error(f"[BG] Report {report_id} not found")
             return
 
-        fir_filename = f"CR_{case_number}.pdf"
-        fir_output = FIR_PATH / fir_filename
+        evidence_files = (
+            db.query(_EvidenceFile)
+            .filter(_EvidenceFile.report_id == report_id)
+            .all()
+        )
+
+        # ── Step 1 & 2: OCR + forensics ──────────────────────────────────
+        all_ocr_text: list[str] = []
+        max_tamper_score = 0.0
+        all_forensic_flags: list[str] = []
+        forensic_summaries: list[str] = []
+
+        for ev in evidence_files:
+            stored_path = UPLOAD_PATH / ev.stored_filename
+            if not stored_path.exists():
+                continue
+
+            suffix = Path(ev.stored_filename).suffix.lower()
+
+            # OCR (images, PDFs, text)
+            try:
+                ocr_text, ocr_conf = _ocr_service.extract_text(stored_path)
+                ev.ocr_text = ocr_text
+                ev.ocr_confidence = ocr_conf
+                if ocr_text and not ocr_text.startswith("["):
+                    all_ocr_text.append(ocr_text)
+                # EXIF for images
+                if suffix in IMAGE_EXTENSIONS:
+                    exif_data = _ocr_service.extract_exif_metadata(stored_path)
+                    if exif_data:
+                        ev.exif_data = exif_data
+            except Exception as ocr_err:
+                logger.error(f"[BG OCR] {ev.original_filename}: {ocr_err}")
+
+            # Image forensics
+            if ev.file_type == "image":
+                try:
+                    fr = _forensics.analyze(stored_path)
+                    ev.tamper_score = fr["tamper_score"]
+                    ev.is_tampered  = fr["is_tampered"]
+                    ev.tamper_flags = fr["flags"]
+                    ev.ela_analysis = fr.get("ela_stats")
+                    ev.gps_lat      = fr.get("gps_lat")
+                    ev.gps_lon      = fr.get("gps_lon")
+                    if fr["tamper_score"] > max_tamper_score:
+                        max_tamper_score = fr["tamper_score"]
+                    all_forensic_flags.extend(fr["flags"])
+                    if fr["summary"]:
+                        forensic_summaries.append(fr["summary"])
+                except Exception as fe:
+                    logger.error(f"[BG FORENSICS] {ev.original_filename}: {fe}")
+
+            # Video forensics
+            if ev.file_type == "video":
+                try:
+                    vr = video_forensics_service.analyze(stored_path)
+                    ev.tamper_score = vr.get("tamper_score", 0.0)
+                    ev.is_tampered  = vr.get("is_tampered", False)
+                    ev.tamper_flags = vr.get("flags", [])
+                    ev.ela_analysis = {
+                        "layer_scores": vr.get("layer_scores"),
+                        "metadata":     vr.get("metadata"),
+                        "format":       vr.get("format"),
+                    }
+                    if ev.tamper_score and ev.tamper_score > max_tamper_score:
+                        max_tamper_score = ev.tamper_score
+                    all_forensic_flags.extend(vr.get("flags", []))
+                    if vr.get("summary"):
+                        forensic_summaries.append(f"[VIDEO {ev.original_filename}] {vr['summary']}")
+                except Exception as ve:
+                    logger.error(f"[BG VIDEO FORENSICS] {ev.original_filename}: {ve}")
+
+        db.commit()  # save per-file OCR + forensics data
+
+        # ── Step 3: Update report-level forensics + OCR text ─────────────
+        combined_ocr = " ".join(all_ocr_text)
+        if combined_ocr:
+            report.extracted_text = combined_ocr[:5000]
+
+        if evidence_files:
+            report.forensics_tamper_score = round(max_tamper_score, 3)
+            unique_flags = list(set(all_forensic_flags))
+            report.forensics_flags = unique_flags + (report.forensics_flags or [])
+            report.forensics_summary = " | ".join(forensic_summaries) if forensic_summaries else None
+
+        # ── Step 4: Re-adjust authenticity score based on tamper findings ─
+        if (
+            max_tamper_score >= _cfg.ela_tamper_threshold
+            and report.authenticity_score is not None
+        ):
+            old = report.authenticity_score
+            report.authenticity_score = min(old, 0.50)
+            report.forensics_flags = list(set(
+                (report.forensics_flags or []) +
+                [f"IMAGE FORENSICS: Potential tampering detected (score={max_tamper_score:.0%})"]
+            ))
+            logger.info(
+                f"[BG] Auth score adjusted for tamper: {old:.2f} → {report.authenticity_score:.2f} "
+                f"case={report.case_number}"
+            )
+
+        report.status = "TRIAGED"
+        db.commit()
+        logger.info(f"[BG] Evidence processed for {report.case_number}")
+
+        # ── Step 5: Complaint Report PDF ─────────────────────────────────
+        fir_will_generate = (
+            report.risk_level in ("HIGH", "MEDIUM")
+            and report.fake_recommendation != "REJECT"
+        )
+        if not fir_will_generate:
+            logger.info(f"[BG] Skipping FIR for {report.case_number} (risk={report.risk_level}, fake_rec={report.fake_recommendation})")
+            return
+
+        fir_filename = f"CR_{report.case_number}.pdf"
+        fir_output   = FIR_PATH / fir_filename
+
+        evidence_list_for_fir = [
+            {
+                "original_filename": ev.original_filename,
+                "file_type":         ev.file_type,
+                "sha256_hash":       ev.sha256_hash,
+                "ocr_confidence":    ev.ocr_confidence or 0,
+                "uploaded_at":       ev.uploaded_at.isoformat() if ev.uploaded_at else "",
+                "tamper_score":      ev.tamper_score or 0,
+                "is_tampered":       ev.is_tampered or False,
+            }
+            for ev in evidence_files
+        ]
 
         _fir_gen.generate(
             report_data={
-                "case_number": report.case_number,
-                "complainant_name": report.complainant_name,
-                "complainant_phone": report.complainant_phone,
-                "complainant_email": report.complainant_email,
-                "complainant_address": report.complainant_address,
-                "incident_description": report.incident_description,
-                "incident_date": report.incident_date,
-                "incident_location": report.incident_location,
-                "risk_level": report.risk_level,
-                "risk_score": report.risk_score,
-                "crime_category": report.crime_category,
-                "crime_subcategory": report.crime_subcategory,
-                "ai_summary": report.ai_summary,
-                "entities": report.entities,
-                "bns_sections": report.bns_sections,
-                "authenticity_score": report.authenticity_score,
-                "fake_recommendation": report.fake_recommendation,
-                "fake_flags": report.fake_flags,
-                "content_hash": report.content_hash,
+                "case_number":           report.case_number,
+                "complainant_name":      report.complainant_name,
+                "complainant_phone":     report.complainant_phone,
+                "complainant_email":     report.complainant_email,
+                "complainant_address":   report.complainant_address,
+                "incident_description":  report.incident_description,
+                "incident_date":         report.incident_date,
+                "incident_location":     report.incident_location,
+                "risk_level":            report.risk_level,
+                "risk_score":            report.risk_score,
+                "crime_category":        report.crime_category,
+                "crime_subcategory":     report.crime_subcategory,
+                "ai_summary":            report.ai_summary,
+                "entities":              report.entities,
+                "bns_sections":          report.bns_sections,
+                "authenticity_score":    report.authenticity_score,
+                "fake_recommendation":   report.fake_recommendation,
+                "fake_flags":            report.fake_flags,
+                "content_hash":          report.content_hash,
                 "forensics_tamper_score": report.forensics_tamper_score,
-                "forensics_flags": report.forensics_flags,
-                "reporter_trust_score": report.reporter_trust_score,
-                "evidence_files": evidence_list,
-                "assigned_officer": "Pending Assignment",
+                "forensics_flags":       report.forensics_flags,
+                "reporter_trust_score":  report.reporter_trust_score,
+                "evidence_files":        evidence_list_for_fir,
+                "assigned_officer":      "Pending Assignment",
             },
             output_path=fir_output,
         )
 
-        report.fir_path = fir_filename
-        report.fir_generated_at = _dt.datetime.utcnow()
-        report.fir_hash = _hash_service.hash_file(fir_output)
-        report.status = "COMPLAINT_REGISTERED"
+        report.fir_path          = fir_filename
+        report.fir_generated_at  = _dt.datetime.utcnow()
+        report.fir_hash          = _hash_service.hash_file(fir_output)
+        report.status            = "COMPLAINT_REGISTERED"
         db.commit()
         logger.info(f"[BG FIR] Complaint Report generated: {fir_filename}")
 
     except Exception as e:
-        logger.error(f"[BG FIR] Failed for {case_number}: {e}")
+        logger.error(f"[BG] Processing failed for report {report_id}: {e}", exc_info=True)
         try:
-            if report:
+            if report and report.status == "PROCESSING":
                 report.status = "TRIAGED"
                 db.commit()
         except Exception:
@@ -277,11 +414,11 @@ async def submit_report(
     db.add(report)
     db.flush()
 
-    # ── 4. Process uploaded evidence files ────────────────────────────
-    all_ocr_text = []
+    # ── 4. Save uploaded evidence files (hash only — OCR/forensics in background) ─
+    # We intentionally skip OCR and image forensics here to keep the main request
+    # well under Render's 60 s proxy timeout.  The background task will pick up
+    # OCR + ELA forensics + FIR generation once the response is sent.
     stored_evidence = []
-    image_paths_for_forensics = []
-    ocr_info_notes: list = []          # soft warnings — never block submission
 
     for upload in evidence_files:
         if not upload.filename:
@@ -301,34 +438,8 @@ async def submit_report(
         stored_path = UPLOAD_PATH / safe_name
         stored_path.write_bytes(file_bytes)
 
-        # SHA-256 hash for Section 65B compliance
+        # SHA-256 hash for Section 65B compliance (fast — just hashing)
         file_hash = _hash_service.hash_bytes(file_bytes)
-
-        # OCR extraction
-        ocr_text, ocr_confidence = _ocr_service.extract_text(stored_path)
-
-        # Soft warning: image uploaded but no text found (e.g. accident photo, injury image).
-        # This is EXPECTED for visual evidence — does not block submission or affect scoring.
-        if (
-            ocr_confidence == 0.0
-            and suffix in IMAGE_EXTENSIONS
-            and not ocr_text.startswith("[OCR")      # skip Tesseract-unavailable messages
-        ):
-            ocr_info_notes.append(
-                f"OCR-INFO '{upload.filename}': No text detected in this image. "
-                "Visual evidence (accident photos, injury documentation, location images) "
-                "is fully accepted — image forensics and chain-of-custody hash still applied."
-            )
-            logger.info(
-                f"OCR found no text in '{upload.filename}' — treating as visual evidence, "
-                "submission continues normally."
-            )
-
-        # EXIF metadata for images
-        exif_data = {}
-        if suffix in IMAGE_EXTENSIONS:
-            exif_data = _ocr_service.extract_exif_metadata(stored_path)
-            image_paths_for_forensics.append(stored_path)
 
         ev = EvidenceFile(
             id=str(uuid.uuid4()),
@@ -343,71 +454,13 @@ async def submit_report(
             file_size_bytes=len(file_bytes),
             mime_type=upload.content_type,
             sha256_hash=file_hash,
-            ocr_text=ocr_text,
-            ocr_confidence=ocr_confidence,
-            exif_data=exif_data if exif_data else None,
+            # ocr_text / forensics fields populated by background task
         )
         db.add(ev)
         stored_evidence.append(ev)
-        if ocr_text and not ocr_text.startswith("["):
-            all_ocr_text.append(ocr_text)
 
-    combined_ocr = " ".join(all_ocr_text)
-    report.extracted_text = combined_ocr[:5000] if combined_ocr else None
-
-    # ── 5. Image forensics on each image file ─────────────────────────
-    max_tamper_score = 0.0
-    all_forensic_flags = []
-    forensic_summaries = []
-
-    for i, (ev, img_path) in enumerate(
-        [(e, UPLOAD_PATH / e.stored_filename) for e in stored_evidence
-         if e.file_type == "image"]
-    ):
-        forensics_result = _forensics.analyze(img_path)
-
-        ev.tamper_score = forensics_result["tamper_score"]
-        ev.is_tampered = forensics_result["is_tampered"]
-        ev.tamper_flags = forensics_result["flags"]
-        ev.ela_analysis = forensics_result.get("ela_stats")
-        ev.gps_lat = forensics_result.get("gps_lat")
-        ev.gps_lon = forensics_result.get("gps_lon")
-
-        if forensics_result["tamper_score"] > max_tamper_score:
-            max_tamper_score = forensics_result["tamper_score"]
-        all_forensic_flags.extend(forensics_result["flags"])
-        if forensics_result["summary"]:
-            forensic_summaries.append(forensics_result["summary"])
-
-    # ── 5b. Video forensics (Phase 2 — deepfake detection) ────────────
-    for ev in [e for e in stored_evidence if e.file_type == "video"]:
-        vid_path = UPLOAD_PATH / ev.stored_filename
-        try:
-            v_result = video_forensics_service.analyze(vid_path)
-        except Exception as e:
-            logger.error(f"Video forensics failed for {ev.original_filename}: {e}")
-            continue
-
-        ev.tamper_score = v_result.get("tamper_score", 0.0)
-        ev.is_tampered = v_result.get("is_tampered", False)
-        ev.tamper_flags = v_result.get("flags", [])
-        # Store layer scores/metadata in ela_analysis column (reused for video layer data)
-        ev.ela_analysis = {
-            "layer_scores": v_result.get("layer_scores"),
-            "metadata": v_result.get("metadata"),
-            "format": v_result.get("format"),
-        }
-
-        if ev.tamper_score and ev.tamper_score > max_tamper_score:
-            max_tamper_score = ev.tamper_score
-        all_forensic_flags.extend(v_result.get("flags", []))
-        if v_result.get("summary"):
-            forensic_summaries.append(f"[VIDEO {ev.original_filename}] {v_result['summary']}")
-
-    if stored_evidence:
-        report.forensics_tamper_score = round(max_tamper_score, 3)
-        report.forensics_flags = list(set(all_forensic_flags)) + ocr_info_notes
-        report.forensics_summary = " | ".join(forensic_summaries) if forensic_summaries else None
+    # Content hash uses description only at this stage (OCR text added by background task)
+    combined_ocr = ""  # filled in background
 
     # ── 6. Content hash (chain of custody + duplicate detection) ─────
     report.content_hash = _hash_service.hash_report_content(
@@ -427,12 +480,8 @@ async def submit_report(
         fake_result.authenticity_score, trust_score
     )
 
-    # Factor in image tampering into authenticity
-    if max_tamper_score >= settings.ela_tamper_threshold:
-        adjusted_auth_score = min(adjusted_auth_score, 0.50)
-        fake_result.flags.append(
-            f"IMAGE FORENSICS: Potential tampering detected (score={max_tamper_score:.0%})"
-        )
+    # Note: image tamper score is checked by the background task after forensics run.
+    # It will further adjust authenticity_score in the DB after analysis completes.
 
     # Factor in frequency abuse
     if is_freq_suspicious:
@@ -540,29 +589,11 @@ async def submit_report(
     )
     report.reporter_trust_score = new_trust_score
 
-    # ── 10. Auto-generate Complaint Report PDF (background — keeps response fast) ─
-    # Move PDF generation to background so the HTTP response returns in <30s.
-    # The PDF is generated async; status updates from TRIAGED → COMPLAINT_REGISTERED.
-    report.status = "TRIAGED"
-    if fir_will_be_generated:
-        evidence_list_bg = [
-            {
-                "original_filename": ev.original_filename,
-                "file_type": ev.file_type,
-                "sha256_hash": ev.sha256_hash,
-                "ocr_confidence": ev.ocr_confidence or 0,
-                "uploaded_at": ev.uploaded_at.isoformat() if ev.uploaded_at else "",
-                "tamper_score": ev.tamper_score or 0,
-                "is_tampered": ev.is_tampered or False,
-            }
-            for ev in stored_evidence
-        ]
-        background_tasks.add_task(
-            _generate_complaint_report_bg,
-            report_id=report.id,
-            case_number=report.case_number,
-            evidence_list=evidence_list_bg,
-        )
+    # ── 10. OCR + forensics + FIR generation (all in background) ────────────────
+    # Status starts as PROCESSING → background advances it to TRIAGED → COMPLAINT_REGISTERED.
+    # This keeps the HTTP response well under Render's 60 s proxy timeout.
+    report.status = "PROCESSING"
+    background_tasks.add_task(_process_evidence_and_fir_bg, report_id=report.id)
 
     # ── 11. Audit log ─────────────────────────────────────────────────
     db.add(AuditLog(
