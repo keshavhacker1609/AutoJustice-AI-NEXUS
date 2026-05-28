@@ -822,8 +822,16 @@ function displayResult(data) {
     risk === 'high' ? 'var(--red)' : risk === 'medium' ? 'var(--saffron)' : 'var(--success)';
 
   document.getElementById('resultCrimeCategory').textContent = data.crime_category || '—';
-  document.getElementById('resultFirStatus').textContent     =
-    data.fir_path ? 'Complaint Report Auto-Generated' : 'Pending Officer Review';
+
+  // FIR status: FIR is now always generated in background (never ready at response time).
+  // Show "Generating…" and poll for readiness if risk is high/medium.
+  const firStatusEl = document.getElementById('resultFirStatus');
+  if (firStatusEl) {
+    const shouldHaveFir = ['high', 'medium'].includes(risk) && data.fake_recommendation !== 'REJECT';
+    firStatusEl.textContent = shouldHaveFir
+      ? 'Complaint Report generating… (ready in ~1 minute)'
+      : 'Pending Officer Review';
+  }
 
   const auth    = data.authenticity_score || 0;
   const authPct = (auth * 100).toFixed(0);
@@ -839,12 +847,46 @@ function displayResult(data) {
   document.getElementById('resultAiSummary').textContent = data.ai_summary || 'Analysis complete.';
   document.getElementById('resultHash').textContent      = data.content_hash || 'N/A';
 
-  const dlBtn = document.getElementById('downloadFirBtn');
-  if (data.fir_path && dlBtn) {
-    dlBtn.style.display = 'inline-flex';
-    dlBtn.onclick = downloadComplaintReport;
-  }
+  // Poll for FIR readiness every 15 s for up to 3 minutes
+  const caseNum = data.case_number;
+  if (caseNum) _pollForFir(caseNum, data.id);
+
   document.querySelector('.result-wrap')?.scrollIntoView({ behavior: 'smooth' });
+}
+
+function _pollForFir(caseNumber, reportId) {
+  let attempts = 0;
+  const MAX_ATTEMPTS = 12; // 12 × 15 s = 3 min
+  const interval = setInterval(async () => {
+    try {
+      attempts++;
+      const res = await fetch(`/api/reports/track/${caseNumber}`);
+      if (!res.ok) return;
+      const data = await res.json();
+
+      if (data.fir_path) {
+        clearInterval(interval);
+        // Update FIR status label
+        const firStatusEl = document.getElementById('resultFirStatus');
+        if (firStatusEl) firStatusEl.textContent = 'Complaint Report Ready ✅';
+
+        // Show download button
+        submittedReportId = reportId || submittedReportId;
+        const dlBtn = document.getElementById('downloadFirBtn');
+        if (dlBtn) {
+          dlBtn.style.display = 'inline-flex';
+          dlBtn.onclick = downloadComplaintReport;
+        }
+        showToast('✅ Complaint Report PDF is ready — click Download!', 'ok');
+      } else if (attempts >= MAX_ATTEMPTS) {
+        clearInterval(interval);
+        const firStatusEl = document.getElementById('resultFirStatus');
+        if (firStatusEl && firStatusEl.textContent.includes('generating')) {
+          firStatusEl.textContent = 'Complaint Report is being prepared by officers';
+        }
+      }
+    } catch (_) {}
+  }, 15000);
 }
 
 function downloadComplaintReport() {
