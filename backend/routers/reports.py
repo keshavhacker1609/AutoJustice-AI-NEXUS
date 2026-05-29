@@ -260,12 +260,43 @@ def _process_everything_bg(
             logger.error(f"[BG TRIAGE] {report_id}: {err}")
             triage = _ai_triage._fallback_analyze(description, combined_ocr)
 
-        report.risk_level        = triage.risk_level
-        report.risk_score        = triage.risk_score
         report.crime_category    = triage.crime_category
         report.crime_subcategory = triage.crime_subcategory
         report.ai_summary        = triage.ai_summary
         report.entities          = triage.entities
+
+        # ── Stage 5c: Evidence-adjusted risk score ────────────────────────────
+        # Risk from description × authenticity from evidence = effective risk
+        # Rationale: a HIGH-risk description with mismatching evidence should
+        # not remain HIGH — the evidence uncertainty discounts the risk score.
+        # Formula: effective_risk = description_risk × sqrt(auth_score)
+        # sqrt() softens the penalty so genuine HIGH crimes with imperfect
+        # evidence (e.g. photo quality) aren't unfairly downgraded too harshly.
+        raw_risk_score = triage.risk_score
+        evidence_confidence = adjusted_auth ** 0.5          # sqrt for soft penalty
+        effective_risk_score = raw_risk_score * evidence_confidence
+
+        # Re-derive risk level from effective score using config thresholds
+        if effective_risk_score >= _cfg.high_risk_threshold:
+            effective_risk_level = "HIGH"
+        elif effective_risk_score >= _cfg.medium_risk_threshold:
+            effective_risk_level = "MEDIUM"
+        else:
+            effective_risk_level = "LOW"
+
+        report.risk_score = round(effective_risk_score, 4)
+        report.risk_level = effective_risk_level
+
+        # Flag if evidence discount changed the risk level
+        if effective_risk_level != triage.risk_level:
+            report.fake_flags = list(set(
+                (report.fake_flags or []) + [
+                    f"RISK ADJUSTED: Description score {raw_risk_score:.0%} × "
+                    f"evidence confidence √{adjusted_auth:.0%} = "
+                    f"effective {effective_risk_score:.0%} → {effective_risk_level} "
+                    f"(was {triage.risk_level})"
+                ]
+            ))
 
         # ── Stage 6: Legal section assignment (math-gated, no contradictions) ──
         # GENUINE  (auth ≥ auth_genuine_threshold) : full legal sections mapped
