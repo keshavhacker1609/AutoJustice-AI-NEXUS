@@ -101,6 +101,9 @@ class ReportResponse(BaseModel):
     status: str
 
     complainant_name: str
+    complainant_phone: Optional[str] = None
+    complainant_email: Optional[str] = None
+    complainant_address: Optional[str] = None
     incident_description: str
     incident_date: Optional[str]
     incident_location: Optional[str]
