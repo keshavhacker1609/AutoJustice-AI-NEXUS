@@ -229,66 +229,97 @@ def _process_everything_bg(
         report.authenticity_score  = adjusted_auth
         report.is_flagged_fake     = adjusted_auth < _cfg.fake_report_threshold
         report.fake_flags          = list(set(fake_result.flags))
-        report.fake_recommendation = fake_result.recommendation
-        if adjusted_auth < _cfg.auth_reject_threshold:
-            report.fake_recommendation = "REJECT"
-        elif adjusted_auth < _cfg.fake_report_threshold and report.fake_recommendation == "GENUINE":
-            report.fake_recommendation = "REVIEW"
 
-        # ── Stage 5: AI semantic triage ───────────────────────────────────
+        # ── Derive recommendation MATHEMATICALLY from auth score ──────────────
+        # AI text recommendation is advisory only — math score is the single
+        # source of truth to prevent contradictions (e.g., REJECT with 82% auth)
+        ai_advisory_rec = fake_result.recommendation   # store for advisory flag
+        if adjusted_auth >= _cfg.auth_genuine_threshold:
+            effective_rec = "GENUINE"
+        elif adjusted_auth < _cfg.auth_reject_threshold:
+            effective_rec = "REJECT"
+        else:
+            effective_rec = "REVIEW"
+
+        report.fake_recommendation = effective_rec
+
+        # If AI model disagreed with math, surface as advisory flag for officer
+        if ai_advisory_rec != effective_rec and ai_advisory_rec in ("REVIEW", "REJECT"):
+            report.fake_flags = list(set(
+                (report.fake_flags or []) + [
+                    f"AI ADVISORY: Model suggested {ai_advisory_rec} but auth score "
+                    f"{adjusted_auth:.0%} ≥ genuine threshold {_cfg.auth_genuine_threshold:.0%} — "
+                    f"verify evidence independently"
+                ]
+            ))
+
+        # ── Stage 5: AI semantic triage ───────────────────────────────────────
         try:
             triage = _ai_triage.analyze(description, combined_ocr)
         except Exception as err:
             logger.error(f"[BG TRIAGE] {report_id}: {err}")
             triage = _ai_triage._fallback_analyze(description, combined_ocr)
 
-        report.risk_level       = triage.risk_level
-        report.risk_score       = triage.risk_score
-        report.crime_category   = triage.crime_category
+        report.risk_level        = triage.risk_level
+        report.risk_score        = triage.risk_score
+        report.crime_category    = triage.crime_category
         report.crime_subcategory = triage.crime_subcategory
-        report.ai_summary       = triage.ai_summary
-        report.entities         = triage.entities
-        # ── Stage 6: Legal section assignment — authenticity-gated ──────────
-        # GENUINE (auth >= 0.75): assign full legal sections
-        # REVIEW  (auth 0.50–0.74): withhold sections — pending officer verification
-        # REJECT  (auth < 0.50 or flagged): replace with false-complaint sections
-        if report.fake_recommendation == "REJECT" or report.is_flagged_fake:
-            # Confirmed fake — map false-complaint laws, floor risk at reject_floor
-            report.risk_level    = "HIGH"
-            report.risk_score    = max(report.risk_score, _cfg.risk_reject_floor)
+        report.ai_summary        = triage.ai_summary
+        report.entities          = triage.entities
+
+        # ── Stage 6: Legal section assignment (math-gated, no contradictions) ──
+        # GENUINE  (auth ≥ auth_genuine_threshold) : full legal sections mapped
+        # REVIEW   (auth_reject ≤ auth < genuine)  : withheld — officer verification
+        # REJECT   (auth < auth_reject_threshold)  : false-complaint sections
+        if effective_rec == "REJECT":
+            # Mathematically confirmed fabricated — map false-complaint laws
+            report.risk_level        = "HIGH"
+            report.risk_score        = max(report.risk_score, _cfg.risk_reject_floor)
             report.crime_subcategory = "False Complaint Filing"
-            report.bns_sections  = [
+            report.bns_sections = [
                 "BNS Section 211 (Intentionally giving false information to public servant)",
                 "BNS Section 218 (Public servant framing incorrect record/writing)",
                 "IT Act Section 66D (Cheating by personation using computer resource)",
             ]
             report.ai_summary = (
-                f"[AUTOMATED FLAG] Likely fabricated report (auth: {adjusted_auth:.0%}). "
+                f"[AUTOMATED FLAG] Likely fabricated report "
+                f"(auth: {adjusted_auth:.0%} < reject threshold {_cfg.auth_reject_threshold:.0%}). "
                 f"Recommend investigating complainant under BNS §211. "
                 f"Original triage: {triage.ai_summary}"
             )
-        elif report.fake_recommendation == "REVIEW" or adjusted_auth < _cfg.auth_genuine_threshold:
-            # Borderline — withhold legal sections until officer verifies
+        elif effective_rec == "REVIEW":
+            # Borderline — withhold legal sections pending officer verification
             report.bns_sections = [
-                f"⚠️ Legal sections withheld — authenticity {adjusted_auth:.0%} below "
-                f"verification threshold ({_cfg.auth_genuine_threshold:.0%}). "
-                "Officer review required before legal mapping."
+                f"⚠️ Legal sections withheld — auth score {adjusted_auth:.0%} is between "
+                f"reject threshold ({_cfg.auth_reject_threshold:.0%}) and genuine threshold "
+                f"({_cfg.auth_genuine_threshold:.0%}). Officer verification required."
             ]
             report.fake_flags = list(set(
                 (report.fake_flags or []) +
-                [f"LEGAL MAPPING WITHHELD: Auth {adjusted_auth:.0%} < threshold {_cfg.auth_genuine_threshold:.0%}"]
+                [f"LEGAL MAPPING WITHHELD: Auth {adjusted_auth:.0%} in review band "
+                 f"[{_cfg.auth_reject_threshold:.0%} – {_cfg.auth_genuine_threshold:.0%}]"]
             ))
-            # Also cap risk if auth is below the review boundary
+            # Cap risk if auth is below the review boundary
             if triage.risk_level == "HIGH" and adjusted_auth < _cfg.auth_review_boundary:
                 report.risk_level = "MEDIUM"
                 report.risk_score = min(report.risk_score, _cfg.risk_review_cap)
                 report.fake_flags = list(set(
                     (report.fake_flags or []) +
-                    [f"RISK CAPPED: Auth {adjusted_auth:.0%} < boundary {_cfg.auth_review_boundary:.0%} — downgraded to MEDIUM"]
+                    [f"RISK CAPPED to MEDIUM: Auth {adjusted_auth:.0%} < "
+                     f"review boundary {_cfg.auth_review_boundary:.0%}"]
                 ))
         else:
-            # Genuine (auth >= auth_genuine_threshold) — assign full legal sections
+            # GENUINE (auth >= auth_genuine_threshold) — assign full legal sections
             report.bns_sections = triage.bns_sections
+            # Surface any AI advisory flags but do NOT block legal mapping
+            if ai_advisory_rec in ("REVIEW", "REJECT"):
+                report.fake_flags = list(set(
+                    (report.fake_flags or []) + [
+                        f"OFFICER NOTE: Evidence should be independently verified "
+                        f"(AI model suggested {ai_advisory_rec}). "
+                        f"Legal sections mapped on auth score {adjusted_auth:.0%}."
+                    ]
+                ))
 
         # ── Stage 7: Jurisdiction detection ──────────────────────────────
         try:
