@@ -631,7 +631,7 @@
       </div>
       <div class="topbar-right">
         <div class="alert-pill" id="highRiskAlert" style="display:none">
-          🚨 <span id="highRiskTodayCount">0</span> HIGH RISK TODAY
+          <span id="highRiskTodayCount">0</span> HIGH RISK TODAY
         </div>
         <div class="topbar-time" id="topbarTime">—</div>
         <button class="btn-refresh" onclick="loadDashboard()">↻ Refresh</button>
@@ -751,9 +751,9 @@
             <h3>All Cases <button onclick="exportCSV()" style="float:right;padding:6px 14px;background:var(--green);color:#fff;border:none;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer;margin-left:12px">&#8595; Export CSV</button></h3>
             <div class="table-filters">
               <button class="filter-btn active" onclick="filterCases(null, this)">All</button>
-              <button class="filter-btn high"   onclick="filterCases('HIGH', this)">🔴 High</button>
-              <button class="filter-btn medium" onclick="filterCases('MEDIUM', this)">🟠 Medium</button>
-              <button class="filter-btn green"  onclick="filterCases('LOW', this)">🟢 Low</button>
+              <button class="filter-btn high"   onclick="filterCases('HIGH', this)">High</button>
+              <button class="filter-btn medium" onclick="filterCases('MEDIUM', this)">Medium</button>
+              <button class="filter-btn green"  onclick="filterCases('LOW', this)">Low</button>
             </div>
           </div>
           <table>

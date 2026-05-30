@@ -120,11 +120,11 @@ async function verifyPhoneOTP() {
 
     // Update checklist
     const chk = document.getElementById('dv-check-phone');
-    if (chk) { chk.textContent = '✅'; chk.style.color = '#16a34a'; }
+    if (chk) { chk.textContent = '✓'; chk.style.color = '#16a34a'; }
     const lbl = document.getElementById('dv-check-phone-label');
     if (lbl) lbl.style.color = '#16a34a';
 
-    showToast('✅ Mobile number verified!', 'ok');
+    showToast('Mobile number verified', 'ok');
     _checkBothVerified();
 
   } catch (err) {
@@ -268,11 +268,11 @@ async function verifyOTP() {
 
     // Update checklist
     const chk = document.getElementById('dv-check-email');
-    if (chk) { chk.textContent = '✅'; chk.style.color = '#16a34a'; }
+    if (chk) { chk.textContent = '✓'; chk.style.color = '#16a34a'; }
     const lbl = document.getElementById('dv-check-email-label');
     if (lbl) lbl.style.color = '#16a34a';
 
-    showToast('✅ Email verified!', 'ok');
+    showToast('Email verified', 'ok');
     _checkBothVerified();
 
   } catch (err) {
@@ -340,12 +340,12 @@ function _checkBothVerified() {
   const phoneBadge = document.getElementById('dv-badge-phone');
   const emailBadge = document.getElementById('dv-badge-email');
   if (phoneBadge) {
-    phoneBadge.textContent = phoneOk ? '✅ Verified' : 'OPTIONAL';
+    phoneBadge.textContent = phoneOk ? 'Verified' : 'OPTIONAL';
     phoneBadge.style.background = phoneOk ? '#dcfce7' : '#fef9c3';
     phoneBadge.style.color = phoneOk ? '#166534' : '#854d0e';
   }
   if (emailBadge) {
-    emailBadge.textContent = emailOk ? '✅ Verified' : 'REQUIRED';
+    emailBadge.textContent = emailOk ? 'Verified' : 'REQUIRED';
     emailBadge.style.background = emailOk ? '#dcfce7' : '#fee2e2';
     emailBadge.style.color = emailOk ? '#166534' : '#991b1b';
   }
@@ -356,8 +356,8 @@ function _checkBothVerified() {
     btn.disabled = !emailOk;
     if (emailOk) {
       btn.textContent = phoneOk
-        ? '✅ Both Verified — Continue to Complaint Form →'
-        : '✅ Email Verified — Continue to Complaint Form →';
+        ? 'Both Verified — Continue to Complaint Form →'
+        : 'Email Verified — Continue to Complaint Form →';
       btn.style.background = '#16a34a';
     }
   }
@@ -438,8 +438,8 @@ window.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'digilocker_verified') {
     digilockerSessionToken = event.data.session_token;
     const btn = document.getElementById('dlVerifyBtn');
-    if (btn) { btn.textContent = '✅ Aadhaar Verified'; btn.disabled = true; btn.style.background = '#16a34a'; }
-    showToast('✅ Aadhaar verified via DigiLocker!', 'ok');
+    if (btn) { btn.textContent = 'Aadhaar Verified'; btn.disabled = true; btn.style.background = '#16a34a'; }
+    showToast('Aadhaar verified via DigiLocker', 'ok');
   }
 });
 
@@ -953,7 +953,7 @@ function _pollForAnalysis(caseNumber, reportId) {
         clearInterval(iv);
         submittedReportId = reportId || submittedReportId;
         _applyResultData(data);
-        showToast('✅ AI analysis complete!', 'ok');
+        showToast('Analysis complete', 'ok');
         // Continue polling for FIR if needed
         _pollForFir(caseNumber, reportId);
       } else if (attempts >= MAX) {
@@ -979,10 +979,10 @@ function _pollForFir(caseNumber, reportId) {
         clearInterval(iv);
         submittedReportId = reportId || submittedReportId;
         const firStatusEl = document.getElementById('resultFirStatus');
-        if (firStatusEl) firStatusEl.textContent = 'Complaint Report Ready ✅';
+        if (firStatusEl) firStatusEl.textContent = 'Complaint Report Ready';
         const dlBtn = document.getElementById('downloadFirBtn');
         if (dlBtn) { dlBtn.style.display = 'inline-flex'; dlBtn.onclick = downloadComplaintReport; }
-        showToast('✅ Complaint Report PDF is ready — click Download!', 'ok');
+        showToast('Complaint Report PDF is ready — click Download', 'ok');
       } else if (attempts >= MAX) {
         clearInterval(iv);
       }

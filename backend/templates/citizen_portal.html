@@ -606,18 +606,18 @@
         <div class="dv-checklist">
           <div class="dv-check-item" id="dv-check-phone">
             <div class="dv-check-circle" id="dv-cc-phone"></div>
-            📱 Mobile OTP
+            Mobile OTP
           </div>
           <div class="dv-check-item" id="dv-check-email">
             <div class="dv-check-circle" id="dv-cc-email"></div>
-            ✉ Email OTP
+            Email OTP
           </div>
         </div>
 
         <!-- ── Panel 1: Mobile OTP ── -->
         <div class="dv-panel" id="dvp-phone">
           <div class="dv-panel-head">
-            <div class="dv-panel-icon">📱</div>
+            <div class="dv-panel-icon">SMS</div>
             <div class="dv-panel-label">
               <strong>Step 1 — Mobile OTP</strong>
               <span>Verify your Indian mobile number via SMS</span>
@@ -669,14 +669,14 @@
             </div>
           </div>
           <div class="dv-done-msg" id="dvp-phone-done" style="display:none">
-            ✅ &nbsp;<span id="dv-phone-done-text">Mobile verified via SMS OTP</span>
+            ✓ &nbsp;<span id="dv-phone-done-text">Mobile verified via SMS OTP</span>
           </div>
         </div>
 
         <!-- ── Panel 2: Email OTP ── -->
         <div class="dv-panel" id="dvp-email">
           <div class="dv-panel-head">
-            <div class="dv-panel-icon">✉</div>
+            <div class="dv-panel-icon">@</div>
             <div class="dv-panel-label">
               <strong>Step 2 — Email OTP</strong>
               <span>Verify your email address</span>
@@ -723,14 +723,14 @@
             </div>
           </div>
           <div class="dv-done-msg" id="dvp-email-done" style="display:none">
-            ✅ &nbsp;<span id="dv-email-done-text">Email verified via OTP</span>
+            ✓ &nbsp;<span id="dv-email-done-text">Email verified via OTP</span>
           </div>
         </div>
 
         <!-- ── Optional: DigiLocker / Aadhaar ── -->
         <div class="dv-optional" id="dv-digilocker-wrap">
           <div class="dv-opt-head" onclick="toggleDigiLockerPanel()">
-            <span>🔒</span>
+            <span style="font-size:11px;font-weight:700;color:var(--gov-blue);background:var(--gov-blue-lt);padding:2px 6px;border-radius:3px">ID</span>
             <div>
               <strong style="font-size:12px;font-weight:700;color:var(--gov-blue)">Optional: Aadhaar Identity Verification via DigiLocker</strong>
               <div style="font-size:11px;color:var(--gray-400);margin-top:1px">Not required — Aadhaar verification boosts your complaint's legal credibility score</div>
@@ -740,7 +740,7 @@
           <div class="dv-opt-body" id="dv-opt-body" style="display:none">
             <div id="dlUnverifiedPanel">
               <button class="dl-verify-btn" id="dlVerifyBtn" onclick="openDigiLockerPopup()">
-                <div class="dl-logo-box">🔐</div>
+                <div class="dl-logo-box">DL</div>
                 <div class="dl-btn-text">
                   <strong>Verify with DigiLocker</strong>
                   <span>Opens the official DigiLocker login in a secure popup window</span>
@@ -772,7 +772,7 @@
         <!-- Proceed button — unlocks when BOTH phone + email verified -->
         <button class="btn btn-success btn-full" id="dv-proceed-btn" disabled onclick="proceedWithBothVerified()"
           style="margin-top:6px;padding:12px;font-size:14px;justify-content:center">
-          🔒 Verify both above to continue
+          Verify both above to continue
         </button>
 
       </div><!-- /section-card-body -->

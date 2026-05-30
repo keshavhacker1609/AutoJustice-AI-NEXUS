@@ -348,7 +348,7 @@ function renderCasesTable(cases, targetId) {
         <td>
           <div style="display:flex; gap:4px; flex-wrap:wrap">
             <button class="table-action-btn" onclick="openCase('${r.id}')">View</button>
-            <button class="table-action-btn" style="color:var(--blue);border-color:var(--blue)" onclick="showAIExplain('${r.id}','${r.case_number}')" title="Why did AI decide this?">🔍 Explain</button>
+            <button class="table-action-btn" style="color:var(--blue);border-color:var(--blue)" onclick="showAIExplain('${r.id}','${r.case_number}')" title="Why did AI decide this?">Explain</button>
             ${r.fir_path
               ? `<button class="table-action-btn download" onclick="downloadComplaintReport('${r.id}')">Download CR</button>`
               : `<button class="table-action-btn" onclick="generateComplaintReport('${r.id}', this)">Gen CR</button>`
@@ -1191,7 +1191,7 @@ async function togglePriority(reportId) {
   const res = await fetch(`/api/reports/${reportId}/priority`, { method:'PATCH', headers: authHeaders() });
   if (res.ok) {
     const data = await res.json();
-    showDashToast(data.is_priority ? '🔴 Marked as Priority' : 'Priority removed', 'ok');
+    showDashToast(data.is_priority ? 'Marked as Priority' : 'Priority removed', 'ok');
     loadAllCases();
     setTimeout(() => openCase(reportId), 300);
   }
