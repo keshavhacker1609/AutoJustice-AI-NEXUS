@@ -634,10 +634,10 @@ async function openCase(reportId) {
           : `<button class="btn btn-primary" onclick="generateComplaintReport('${data.id}', this)">Generate Complaint Report</button>`
         }
         <button class="btn" style="background:var(--blue-light);color:var(--blue)" onclick="showAIExplain('${data.id}','${data.case_number}')">AI Explain</button>
-        <button class="btn btn-outline" style="background:#1565c0;color:#fff;border:none" onclick="updateCaseStatus(currentModalReportId, currentModalStatus)">&#9998; Update Status</button>
-        <button class="btn btn-outline" style="background:#047857;color:#fff;border:none" onclick="addCaseNote(currentModalReportId)">&#128221; Notes</button>
-        <button class="btn btn-outline" style="background:#92400e;color:#fff;border:none" onclick="assignCase(currentModalReportId)">&#128110; Assign</button>
-        <button class="btn btn-outline" style="background:#7c3aed;color:#fff;border:none" onclick="togglePriority(currentModalReportId)">&#128308; Priority</button>
+        <button class="btn btn-outline" style="background:#1565c0;color:#fff;border:none" onclick="updateCaseStatus(currentModalReportId, currentModalStatus)">Update Status</button>
+        <button class="btn btn-outline" style="background:#047857;color:#fff;border:none" onclick="addCaseNote(currentModalReportId)">Notes</button>
+        <button class="btn btn-outline" style="background:#92400e;color:#fff;border:none" onclick="assignCase(currentModalReportId)">Assign</button>
+        <button class="btn btn-outline" style="background:#7c3aed;color:#fff;border:none" onclick="togglePriority(currentModalReportId)">Priority</button>
         <button class="btn btn-danger" onclick="flagFake('${data.id}', this)">Flag as Fake</button>
         <button class="btn btn-outline" onclick="closeModal()">Close</button>
       </div>
