@@ -81,5 +81,5 @@ demo/evidence/*.webm
 backend/archives/
 backend/static/uploads/
 
-# Claude / AI assistant state
+# Editor / tooling state
 .claude/
