@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     app_name: str = Field(default="AutoJustice AI NEXUS")
     app_version: str = Field(default="2.0.0")
     debug: bool = Field(default=False)
+    # Expose interactive API docs (Swagger/ReDoc) and the OpenAPI schema.
+    # Off by default so the full API surface is not disclosed publicly in production.
+    # Enable for local dev via EXPOSE_DOCS=true (or it follows DEBUG when set).
+    expose_docs: bool = Field(default=False)
     secret_key: str = Field(default="change-me-in-production-use-openssl-rand-hex-32")
 
     # ─── JWT Authentication ────────────────────────────────────────────

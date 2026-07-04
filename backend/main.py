@@ -92,6 +92,10 @@ async def lifespan(app: FastAPI):
 
 
 # ─── FastAPI App ──────────────────────────────────────────────────────────────
+# In production the interactive docs and OpenAPI schema are disabled so the full
+# API surface is not disclosed publicly. Enable with EXPOSE_DOCS=true (or DEBUG=true).
+_docs_enabled = settings.expose_docs or settings.debug
+
 app = FastAPI(
     title="AutoJustice AI NEXUS",
     description=(
@@ -101,8 +105,9 @@ app = FastAPI(
     ),
     version=settings.app_version,
     lifespan=lifespan,
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
+    docs_url="/api/docs" if _docs_enabled else None,
+    redoc_url="/api/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
 )
 
 # ─── Middleware ───────────────────────────────────────────────────────────────
