@@ -216,10 +216,20 @@ def _process_everything_bg(
             fake_result.authenticity_score, trust_score
         )
         if max_tamper_score >= _cfg.ela_tamper_threshold:
-            # Cap auth at midpoint between fake_threshold and 1.0 when tampering detected
-            adjusted_auth = min(adjusted_auth, _cfg.fake_report_threshold + (1.0 - _cfg.fake_report_threshold) * 0.5)
+            # Forensic tamper/synthetic evidence must DRIVE authenticity down, not merely
+            # cap it. The ceiling falls as the tamper score rises:
+            #   tamper 0.55 (threshold) -> ceiling 0.45 (borderline REVIEW)
+            #   tamper 0.60 (HIGH susp.) -> ceiling 0.40 (below fake threshold -> flagged fake)
+            #   tamper 0.75 (AI-generated confirmed by Gemini Vision) -> ceiling 0.25 (REJECT)
+            # Fabricated or AI-generated evidence is not genuine — this makes the pipeline
+            # flag it as fake instead of quietly routing it to manual review.
+            forensic_ceiling = round(1.0 - max_tamper_score, 3)
+            adjusted_auth = min(adjusted_auth, forensic_ceiling)
+            _synthetic = any("AI-GEN" in f or "GEMINI-VISION" in f for f in all_forensic_flags)
+            _label = "AI-generated / synthetic image" if _synthetic else "image manipulation"
             fake_result.flags.append(
-                f"IMAGE FORENSICS: Potential tampering detected (score={max_tamper_score:.0%})"
+                f"IMAGE FORENSICS: {_label} detected (score={max_tamper_score:.0%}) — "
+                f"evidence authenticity capped at {forensic_ceiling:.0%}"
             )
         if is_freq_suspicious and freq_reason:
             # Cap auth at fake_threshold boundary when frequency abuse detected
