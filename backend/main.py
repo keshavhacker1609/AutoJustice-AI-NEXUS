@@ -225,6 +225,47 @@ async def health_check():
     }
 
 
+# ─── AI Diagnostic (temporary) ────────────────────────────────────────────────
+# Reports the true state of the Gemini integration and performs a live probe so
+# silent fallbacks can be diagnosed without digging through container logs.
+# Does NOT expose the API key. Remove once the Gemini path is confirmed healthy.
+@app.get("/api/health/ai", tags=["System"])
+async def ai_health_check():
+    key = settings.gemini_api_key or ""
+    result = {
+        "gemini_key_present": bool(key),
+        "gemini_key_len": len(key),
+        "gemini_key_prefix": (key[:6] + "…") if key else None,
+        "configured_model": settings.gemini_model,
+        "sdk_import": None,
+        "probe_ok": False,
+        "probe_error": None,
+        "probe_text": None,
+    }
+    try:
+        from google import genai as _genai
+        from google.genai import types as _gtypes
+        result["sdk_import"] = "ok"
+    except Exception as e:
+        result["sdk_import"] = f"FAILED: {type(e).__name__}: {e}"
+        return result
+    if not key:
+        result["probe_error"] = "No GEMINI_API_KEY set"
+        return result
+    try:
+        _client = _genai.Client(api_key=key)
+        _resp = _client.models.generate_content(
+            model=settings.gemini_model,
+            contents="Reply with the single word: OK",
+            config=_gtypes.GenerateContentConfig(max_output_tokens=5, temperature=0.0),
+        )
+        result["probe_ok"] = True
+        result["probe_text"] = (getattr(_resp, "text", "") or "").strip()[:50]
+    except Exception as e:
+        result["probe_error"] = f"{type(e).__name__}: {str(e)[:400]}"
+    return result
+
+
 # ─── Global Error Handler ─────────────────────────────────────────────────────
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
