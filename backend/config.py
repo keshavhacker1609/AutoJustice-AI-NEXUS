@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     # ─── AI Services ──────────────────────────────────────────────────
     gemini_api_key: str = Field(default="")
-    gemini_model: str = Field(default="gemini-1.5-pro")
+    gemini_model: str = Field(default="gemini-2.0-flash")   # 1.5 series retired by Google; 2.0-flash is GA + vision-capable
     tesseract_path: str = Field(default="tesseract")
 
     # ─── Database ─────────────────────────────────────────────────────
