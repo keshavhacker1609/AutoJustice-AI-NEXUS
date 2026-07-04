@@ -787,7 +787,7 @@ async function loadCaseNotes(reportId) {
       <div style="background:#f8fafc;border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:12px">
         <div style="display:flex;justify-content:space-between;margin-bottom:4px">
           <strong style="color:var(--navy)">${escapeHtml(n.officer_name || 'Officer')}</strong>
-          <span style="color:var(--gray-400)">${new Date(n.created_at).toLocaleString('en-IN')}</span>
+          <span style="color:var(--gray-400)">${_utcDate(n.created_at).toLocaleString('en-IN')}</span>
         </div>
         <p style="color:#374151">${escapeHtml(n.note_text)}</p>
       </div>
@@ -896,7 +896,7 @@ async function loadAuditLog() {
         <div style="flex:1">
           <div style="display:flex; justify-content:space-between">
             <span class="audit-action">${escapeHtml(log.action)}</span>
-            <span class="audit-time">${new Date(log.timestamp).toLocaleString('en-IN')}</span>
+            <span class="audit-time">${_utcDate(log.timestamp).toLocaleString('en-IN')}</span>
           </div>
           ${log.details ? `<div class="audit-details">${JSON.stringify(log.details).slice(0, 150)}</div>` : ''}
           ${log.ip_address ? `<div style="font-size:10px; color:var(--gray-400); margin-top:2px">IP: ${log.ip_address}</div>` : ''}
@@ -943,16 +943,27 @@ function formatStatus(status) {
   return STATUS_LABELS[status] || status.replace(/_/g, ' ');
 }
 
+// Backend timestamps are naive UTC (datetime.utcnow) serialized without a 'Z',
+// which browsers otherwise parse as LOCAL time — causing a timezone-offset skew
+// (e.g. a just-submitted case showing "5h ago" in IST). Force UTC interpretation
+// by appending 'Z' when the string carries no timezone designator.
+function _utcDate(isoString) {
+  if (!isoString) return null;
+  const hasTz = typeof isoString === 'string' && /([zZ]|[+-]\d{2}:?\d{2})$/.test(isoString);
+  return new Date(hasTz ? isoString : isoString + 'Z');
+}
+
 function formatTimeAgo(isoString) {
   if (!isoString) return '—';
   const now  = Date.now();
-  const then = new Date(isoString).getTime();
+  const then = _utcDate(isoString).getTime();
   const diff = Math.floor((now - then) / 1000);
 
+  if (diff < 0)    return 'just now';
   if (diff < 60)   return `${diff}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return new Date(isoString).toLocaleDateString('en-IN');
+  return _utcDate(isoString).toLocaleDateString('en-IN');
 }
 
 function showToast(msg, type = 'info') {
@@ -1154,7 +1165,7 @@ async function addCaseNote(reportId) {
   const notesList = notes.length
     ? notes.map(n => `
         <div style="padding:10px;background:#f8fafc;border-radius:6px;margin-bottom:8px;border-left:3px solid var(--blue)">
-          <div style="font-size:11px;color:var(--gray-400);margin-bottom:4px">${n.officer} · ${new Date(n.created_at).toLocaleString('en-IN')}</div>
+          <div style="font-size:11px;color:var(--gray-400);margin-bottom:4px">${n.officer} · ${_utcDate(n.created_at).toLocaleString('en-IN')}</div>
           <div style="font-size:13px;color:var(--gray-900)">${escapeHtml(n.note_text)}</div>
         </div>`).join('')
     : '<div style="color:var(--gray-400);font-size:13px;margin-bottom:12px">No notes yet.</div>';
